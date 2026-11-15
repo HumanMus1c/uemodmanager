@@ -202,17 +202,26 @@ public sealed class ModManager
         // installed whole, as its author says: the loader's part then waits in the game, and the review says so.
         var runsWithout = selected.Any(p => p.NeedsLoader is null
             && p.Files.Any(f => !SettingsFiles.IsPakSettings(f) && !SettingsFiles.IsDocument(f)));
+        var states = PrerequisiteStates(Ue4ssRuntime.Detect(Game).Installed);
         foreach (var needed in selected.Select(p => p.NeedsLoader).OfType<string>().Distinct())
         {
-            var missing = needed switch
+            var (state, bringsWith) = needed switch
             {
-                PackageScanner.ForModsMenu => !IsModsMenuInstalled,
-                PackageScanner.ForModLoader => !IsModLoaderInstalled && !IsModLoader(preview, catalogId),
-                PackageScanner.ForCSharpLoader => !IsCSharpLoaderInstalled && !BringsCSharpLoader(selected),
-                _ => false,
+                PackageScanner.ForModsMenu => (states.ModsMenu, IsModsMenu(selected)),
+                PackageScanner.ForModLoader => (states.ModLoader, IsModLoader(preview, catalogId)),
+                PackageScanner.ForCSharpLoader => (states.CSharpLoader, BringsCSharpLoader(selected)),
+                _ => (ModPrerequisiteState.Ready, false),
             };
-            if (!missing)
+            if (bringsWith || state == ModPrerequisiteState.Ready)
                 continue;
+            if (state == ModPrerequisiteState.Disabled)
+            {
+                if (runsWithout)
+                    warnings.Add($"{needed} is disabled, so the part for it does not run yet. Enable {needed} to use that part too.");
+                else
+                    warnings.Add($"{needed} is disabled. This mod will be installed disabled until you enable {needed}.");
+                continue;
+            }
             if (runsWithout)
                 warnings.Add($"{needed} is not installed, so the part for it does not run yet. The other parts of this download run without it.");
             else if (needed == PackageScanner.ForModsMenu)
@@ -235,7 +244,7 @@ public sealed class ModManager
         var needsUe4ss = !Ue4ssRuntime.Detect(Game).Installed
             && selected.Any(p => p.Target is DeployTarget.Ue4ssMods or DeployTarget.LogicMods);
         if (needsUe4ss)
-            warnings.Add($"UE4SS is not installed in this game. Lua, DLL and Blueprint mods only run with it. They are installed anyway and start working once UE4SS is in place.");
+            warnings.Add($"UE4SS is not installed in this game. Lua, DLL and Blueprint mods only run with it. They are installed disabled in the library until you install UE4SS and enable them.");
 
         var entries = selected
             .SelectMany(p => p.RelativePaths.Select((path, i) => (p.Target, Path: InFolder(ownFolder, p.Target, path), Source: p.Files[i])))
@@ -448,8 +457,14 @@ public sealed class ModManager
                         record.Files[^1].Made = true;
                     }
                 }
-                Deploy(record);
-                TakeMadeSettings(record);
+                var modsAfter = mods.Where(m => m != old).Append(record).ToList();
+                var enabledAfter = modsAfter.Where(m => m == record || m.Enabled).Select(m => m.Id).ToHashSet();
+                var statesAfter = PrerequisiteStatesFor(modsAfter, enabledAfter, EmptyIds, IsUe4ssInstalled());
+                if (!ModPrerequisites.Analyze(record, statesAfter).HasMissingOrDisabled)
+                {
+                    Deploy(record);
+                    TakeMadeSettings(record);
+                }
                 if (old is not null)
                     mods.Remove(old);
                 mods.Insert(position, record);
@@ -471,9 +486,10 @@ public sealed class ModManager
 
             if (old is not null)
                 FileSystem.TryDeleteDirectory(LibraryFolderOf(old));
+            var pendingState = record.Enabled ? "" : ", disabled pending prerequisite";
             Log.Info(old is null
-                ? $"Installed \"{record.Name}\" ({record.Files.Count} file(s), {record.TypeLabel})."
-                : $"Replaced \"{old.Name}\" with \"{record.Name}\" ({record.Files.Count} file(s), {record.TypeLabel}).");
+                ? $"Installed \"{record.Name}\" ({record.Files.Count} file(s), {record.TypeLabel}{pendingState})."
+                : $"Replaced \"{old.Name}\" with \"{record.Name}\" ({record.Files.Count} file(s), {record.TypeLabel}{pendingState}).");
             return record;
         }
     }
@@ -535,29 +551,115 @@ public sealed class ModManager
         }
     }
 
-    public void SetEnabled(string id, bool enabled)
+    public void SetEnabled(string id, bool enabled) => ToggleEnabled(id, enabled);
+
+    /// <summary>
+    /// Enables or disables a mod. Refuses to enable when any required runtime or loader is missing or disabled;
+    /// when disabling a prerequisite loader, atomically disables any enabled mods that depend on it.
+    /// </summary>
+    /// <returns>Names of dependent mods that were also disabled (empty when enabling or when none depended on it).</returns>
+    public IReadOnlyList<string> ToggleEnabled(string id, bool enabled)
     {
         lock (gate)
         {
             var mod = Find(id);
             if (mod.Enabled == enabled)
-                return;
+                return [];
             EnsureCanChange();
             if (enabled)
             {
+                var unmet = ModPrerequisites.Analyze(mod, PrerequisiteStates(IsUe4ssInstalled())).Unmet;
+                if (unmet.Count > 0)
+                    throw PrerequisiteBlockedException(mod, unmet);
                 var clash = mods.FirstOrDefault(other => other != mod && other.Enabled
                     && other.Files.Any(f => mod.Files.Any(g => !g.IsShared && IsSameFile(f, g.Target, g.FileName))));
                 if (clash is not null)
                     throw new ModException($"\"{mod.Name}\" uses the same files as \"{clash.Name}\". Disable that mod first.");
                 Deploy(mod);
                 Commit(undo: () => RemoveDeployedFiles(mod));
+                Log.Info($"Enabled \"{mod.Name}\".");
+                return [];
             }
-            else
-            {
-                Commit(Undeploy(mod));
-            }
-            Log.Info($"{(enabled ? "Enabled" : "Disabled")} \"{mod.Name}\".");
+
+            var dependents = DependentsDisabledWith(mod, mods);
+            var group = new List<ModRecord>(1 + dependents.Count) { mod };
+            group.AddRange(dependents);
+            Commit(Undeploy(group));
+            var dependentNames = dependents.Select(d => d.Name).ToList();
+            Log.Info(dependentNames.Count == 0
+                ? $"Disabled \"{mod.Name}\"."
+                : $"Disabled \"{mod.Name}\" and {dependentNames.Count} dependent mod(s): {string.Join(", ", dependentNames)}.");
+            return dependentNames;
         }
+    }
+
+    /// <summary>
+    /// Disables and undeploys any enabled mods whose required runtime or loader is currently missing or disabled.
+    /// Does nothing if the game is running or enabled mods live in another install.
+    /// </summary>
+    /// <returns>Names of mods that were disabled.</returns>
+    public IReadOnlyList<string> EnforcePrerequisites()
+    {
+        lock (gate)
+        {
+            if (OtherInstallRoot is not null || isGameRunning(Game))
+                return [];
+            var states = PrerequisiteStates(IsUe4ssInstalled());
+            var blocked = mods.Where(m => m.Enabled && ModPrerequisites.Analyze(m, states).HasMissingOrDisabled).ToList();
+            if (blocked.Count == 0)
+                return [];
+            Commit(Undeploy(blocked));
+            var names = blocked.Select(m => m.Name).ToList();
+            Log.Info($"Disabled {names.Count} mod(s) because their prerequisites are not ready: {string.Join(", ", names)}.");
+            return names;
+        }
+    }
+
+    private List<ModRecord> DependentsDisabledWith(ModRecord target, IReadOnlyList<ModRecord> allMods)
+    {
+        if (!target.Enabled || ModPrerequisites.LoaderKindsOf(target).Count == 0)
+            return [];
+        var leavingIds = new HashSet<string> { target.Id };
+        var enabledRemaining = allMods.Where(m => m.Enabled && m.Id != target.Id).Select(m => m.Id).ToHashSet();
+        var statesAfter = PrerequisiteStatesFor(allMods, enabledRemaining, leavingIds, IsUe4ssInstalled());
+        return allMods
+            .Where(m => m.Enabled && m.Id != target.Id && ModPrerequisites.Analyze(m, statesAfter).HasMissingOrDisabled)
+            .ToList();
+    }
+
+    private (HashSet<string> Allowed, List<string> SkippedNames) FilterByPrerequisites(IReadOnlySet<string> wanted)
+    {
+        var allowed = new HashSet<string>(wanted);
+        var skipped = new List<ModRecord>();
+        var ue4ss = IsUe4ssInstalled();
+        while (true)
+        {
+            var leaving = mods.Where(m => m.Enabled && !allowed.Contains(m.Id)).Select(m => m.Id).ToHashSet();
+            var states = PrerequisiteStatesFor(mods, allowed, leaving, ue4ss);
+            var blocked = mods.Where(m => allowed.Contains(m.Id) && ModPrerequisites.Analyze(m, states).HasMissingOrDisabled).ToList();
+            if (blocked.Count == 0)
+                break;
+            foreach (var mod in blocked)
+            {
+                allowed.Remove(mod.Id);
+                if (wanted.Contains(mod.Id))
+                    skipped.Add(mod);
+            }
+        }
+        return (allowed, skipped.Select(m => m.Name).ToList());
+    }
+
+    private static ModException PrerequisiteBlockedException(ModRecord mod, IReadOnlyList<ModPrerequisite> unmet)
+    {
+        if (unmet.Count == 1)
+        {
+            var prereq = ModPrerequisites.NameOf(unmet[0].Kind);
+            return unmet[0].State == ModPrerequisiteState.Missing
+                ? new ModException($"\"{mod.Name}\" needs {prereq}, which is not installed.")
+                : new ModException($"\"{mod.Name}\" needs {prereq}, which is disabled. Enable {prereq} first.");
+        }
+        var names = string.Join(", ", unmet.Select(u => ModPrerequisites.NameOf(u.Kind)));
+        return new ModException($"\"{mod.Name}\" needs prerequisites that are not installed or enabled: {names}.");
     }
 
     /// <summary>
@@ -598,18 +700,24 @@ public sealed class ModManager
     /// player turned on meanwhile stay on.
     /// </summary>
     /// <returns>How many mods were turned on.</returns>
-    public int TurnBackOn()
+    public int TurnBackOn() => TurnBackOnWithDetails().TurnedOn;
+
+    /// <summary>Turns the mods a test without mods turned off back on, skipping any whose prerequisites are not ready.</summary>
+    public (int TurnedOn, IReadOnlyList<string> SkippedMods) TurnBackOnWithDetails()
     {
         lock (gate)
         {
             if (offForTest.Count == 0)
-                return 0;
+                return (0, []);
             EnsureCanChange();
             var wanted = mods.Where(m => m.Enabled || offForTest.Contains(m.Id)).Select(m => m.Id).ToHashSet();
-            var count = mods.Count(m => !m.Enabled && wanted.Contains(m.Id));
-            Apply(wanted, []);
-            Log.Info($"Turned {count} mod(s) back on after the test without mods.");
-            return count;
+            var (allowed, skipped) = FilterByPrerequisites(wanted);
+            var count = mods.Count(m => !m.Enabled && allowed.Contains(m.Id));
+            Apply(allowed, []);
+            Log.Info(skipped.Count == 0
+                ? $"Turned {count} mod(s) back on after the test without mods."
+                : $"Turned {count} mod(s) back on after the test without mods; skipped {skipped.Count} with unmet prerequisites: {string.Join(", ", skipped)}.");
+            return (count, skipped);
         }
     }
 
@@ -655,6 +763,13 @@ public sealed class ModManager
     /// <returns>How many mods were turned on and how many off.</returns>
     public (int On, int Off) ApplySet(string name)
     {
+        var result = ApplySetWithDetails(name);
+        return (result.On, result.Off);
+    }
+
+    /// <summary>Applies a saved mod set, skipping any mods whose prerequisites would not be ready in the resulting state.</summary>
+    public ModBatchResult ApplySetWithDetails(string name)
+    {
         lock (gate)
         {
             var set = FindSet(name);
@@ -663,14 +778,17 @@ public sealed class ModManager
             var wanted = set.ModIds.Except(recommended.Select(m => m.Id))
                 .Concat(recommended.Where(m => m.Enabled || offForTest.Contains(m.Id)).Select(m => m.Id))
                 .ToHashSet();
-            var on = mods.Count(m => !m.Enabled && wanted.Contains(m.Id));
-            var off = mods.Count(m => m.Enabled && !wanted.Contains(m.Id));
+            var (allowed, skipped) = FilterByPrerequisites(wanted);
+            var on = mods.Count(m => !m.Enabled && allowed.Contains(m.Id));
+            var off = mods.Count(m => m.Enabled && !allowed.Contains(m.Id));
             if (on + off > 0)
                 EnsureCanChange();
             if (on + off > 0 || offForTest.Count > 0)
-                Apply(wanted, []);
-            Log.Info($"Applied the mod set \"{set.Name}\": {on} mod(s) turned on, {off} off.");
-            return (on, off);
+                Apply(allowed, []);
+            Log.Info(skipped.Count == 0
+                ? $"Applied the mod set \"{set.Name}\": {on} mod(s) turned on, {off} off."
+                : $"Applied the mod set \"{set.Name}\": {on} mod(s) turned on, {off} off; skipped {skipped.Count} with unmet prerequisites: {string.Join(", ", skipped)}.");
+            return new ModBatchResult(on, off, skipped);
         }
     }
 
@@ -742,13 +860,21 @@ public sealed class ModManager
 
     /// <summary>Removes a mod from the game and from the library.</summary>
     /// <returns>The folder the player's changed settings were backed up to, or null when there were none.</returns>
-    public string? Uninstall(string id)
+    public string? Uninstall(string id) => UninstallWithDetails(id).BackupFolder;
+
+    /// <summary>Removes a mod from the game and from the library, disabling any enabled dependents if it was a prerequisite loader.</summary>
+    public ModUninstallResult UninstallWithDetails(string id)
     {
         lock (gate)
         {
             EnsureCanChange();
             var mod = Find(id);
-            var removal = mod.Enabled ? Undeploy(mod) : null;
+            var dependents = DependentsDisabledWith(mod, mods);
+            var toUndeploy = new List<ModRecord>(1 + dependents.Count);
+            if (mod.Enabled)
+                toUndeploy.Add(mod);
+            toUndeploy.AddRange(dependents);
+            var removal = toUndeploy.Count > 0 ? Undeploy(toUndeploy) : null;
             string? backup;
             try
             {
@@ -771,8 +897,11 @@ public sealed class ModManager
                     FileSystem.TryDeleteDirectory(backup);
             });
             FileSystem.TryDeleteDirectory(LibraryFolderOf(mod));
-            Log.Info($"Uninstalled \"{mod.Name}\".");
-            return backup;
+            var dependentNames = dependents.Select(d => d.Name).ToList();
+            Log.Info(dependentNames.Count == 0
+                ? $"Uninstalled \"{mod.Name}\"."
+                : $"Uninstalled \"{mod.Name}\" and disabled {dependentNames.Count} dependent mod(s): {string.Join(", ", dependentNames)}.");
+            return new ModUninstallResult(backup, dependentNames);
         }
     }
 
@@ -1233,12 +1362,12 @@ public sealed class ModManager
             if (ue4ss.Count == 0)
                 throw new ModException($"UE4SS is not installed in this game.");
 
-            var affected = mods.Where(LivesInUe4ss).ToList();
-            // A mixed mod's files outside UE4SS's folder, such as its pak, are checked like any removal.
+            var affected = mods.Where(NeedsUe4ssEnabled).ToList();
+            // A mixed mod's files outside UE4SS's folder, such as its pak or Blueprint LogicMods files, are checked like any removal.
             var outside = affected.SelectMany(m => m.Files)
                 .Where(f => f.Target != DeployTarget.Ue4ssMods && f.DeployedPath is not null && File.Exists(f.DeployedPath))
                 .ToList();
-            var changed = outside.Where(f => !Matches(f.DeployedPath!, f)).Select(f => f.FileName).ToList();
+            var changed = outside.Where(f => !f.IsPlayerFile && !Matches(f.DeployedPath!, f)).Select(f => f.FileName).ToList();
             if (changed.Count > 0)
                 throw new ModException($"These mod files were changed outside the manager, so nothing was removed: {string.Join(", ", changed)}.");
             foreach (var mod in affected)
@@ -1260,7 +1389,7 @@ public sealed class ModManager
     public Ue4ssRemovePreview PreviewUe4ssRemoval()
     {
         lock (gate)
-            return new Ue4ssRemovePreview(Ue4ssRemovalPaths(), [.. mods.Where(LivesInUe4ss)]);
+            return new Ue4ssRemovePreview(Ue4ssRemovalPaths(), [.. mods.Where(NeedsUe4ssEnabled)]);
     }
 
     /// <summary>
@@ -1285,14 +1414,14 @@ public sealed class ModManager
         return [.. folders.Where(Directory.Exists), .. files.Where(File.Exists)];
     }
 
-    /// <summary>An enabled mod with files in UE4SS's Mods folder: a removal of UE4SS disables it.</summary>
-    private static bool LivesInUe4ss(ModRecord mod) => mod.Enabled && mod.Files.Any(f => f.Target == DeployTarget.Ue4ssMods);
+    /// <summary>An enabled mod that needs UE4SS (Lua, C++ DLL, or Blueprint): a removal of UE4SS disables it.</summary>
+    private static bool NeedsUe4ssEnabled(ModRecord mod) => mod.Enabled && mod.NeedsUe4ss;
 
     /// <summary>What <see cref="ResetModding"/> would change.</summary>
     public ResetPreview PreviewReset()
     {
         lock (gate)
-            return new ResetPreview(mods.Count(m => m.Enabled), mods.Count, IsUe4ssInstalled(), OtherModFiles().Count);
+            return new ResetPreview(mods.Count(m => m.Enabled), mods.Count, HasUe4ssOnDisk(), OtherModFiles().Count);
     }
 
     /// <summary>
@@ -1312,7 +1441,7 @@ public sealed class ModManager
             if (enabled.Count > 0)
                 Commit(Undeploy(enabled));
 
-            var ue4ssRemoved = IsUe4ssInstalled();
+            var ue4ssRemoved = HasUe4ssOnDisk();
             if (ue4ssRemoved)
                 RemoveUe4ss();
 
@@ -1358,7 +1487,9 @@ public sealed class ModManager
         }
     }
 
-    private bool IsUe4ssInstalled() =>
+    private bool IsUe4ssInstalled() => Ue4ssRuntime.Detect(Game).Installed;
+
+    private bool HasUe4ssOnDisk() =>
         Directory.Exists(Path.Combine(Game.BinariesPath, "ue4ss")) || File.Exists(Path.Combine(Game.BinariesPath, "UE4SS.dll"));
 
     /// <summary>
@@ -2111,7 +2242,7 @@ public sealed class ModManager
     }
 
     /// <summary>Mods Menu's start file, below the project folder. A mod for it has none.</summary>
-    private const string ModsMenuStart = "Content/JavaScript/PBZModsMenu/bootstrap.js";
+    private const string ModsMenuStart = PackageScanner.ModsMenuStartFile;
 
     /// <summary>A file only PBZModLoader's own download has, below the project folder. Left in the game, it says nothing.</summary>
     private const string ModLoaderLicenses = "PBZModLoader/LICENSES.txt";
@@ -2129,8 +2260,12 @@ public sealed class ModManager
 
     private string? ProjectFolder => Game.ProjectFolder ?? Game.Profile.ProjectFolder;
 
-    private bool IsInProject(string path) =>
-        (Game.ProjectFolder ?? Game.Profile.ProjectFolder) is { Length: > 0 } project && File.Exists(Path.Combine(Game.RootPath, project, path));
+    private string? ProjectPath(string path) =>
+        (Game.ProjectFolder ?? Game.Profile.ProjectFolder) is { Length: > 0 } project
+            ? Path.Combine(Game.RootPath, project, Local(path))
+            : null;
+
+    private bool IsInProject(string path) => ProjectPath(path) is { } full && File.Exists(full);
 
     /// <summary>Whether these parts of a download are Mods Menu itself, and not a mod for it.</summary>
     public static bool IsModsMenu(IEnumerable<PackageGroup> parts) =>
@@ -2147,11 +2282,13 @@ public sealed class ModManager
         get
         {
             lock (gate)
-                return mods.Any(m => m.Files.Any(f => f.FileName.EndsWith("/" + ModsMenuStart, StringComparison.OrdinalIgnoreCase))) || IsInProject(ModsMenuStart);
+                return mods.Any(IsModsMenuRecord) || IsInProject(ModsMenuStart);
         }
     }
 
-    /// <summary>PBZModLoader is in the list, even when turned off, or its DLL is in the game by hand. A mod for it has no DLL.</summary>
+    internal static bool IsModsMenuRecord(ModRecord mod) =>
+        mod.Files.Any(f => !f.Made && f.FileName.EndsWith("/" + ModsMenuStart, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// Black Myth: Wukong's C# Loader is in the game: its own file next to the exe, put there by the manager or by hand.
     /// Its mods wait for it (see <see cref="PackageScanner.ForCSharpLoader"/>).
@@ -2160,9 +2297,12 @@ public sealed class ModManager
 
     /// <summary>The download brings the C# Loader along, so its mods may come with it.</summary>
     private static bool BringsCSharpLoader(IEnumerable<PackageGroup> selected) =>
-        selected.Any(p => p.RelativePaths.Any(path => path.Equals(PackageScanner.CSharpLoaderFile, StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith("/" + PackageScanner.CSharpLoaderFile, StringComparison.OrdinalIgnoreCase)));
+        selected.Any(p => p.RelativePaths.Any(PackageScanner.IsCSharpLoaderPath));
 
+    internal static bool IsCSharpLoaderRecord(ModRecord mod) =>
+        mod.Files.Any(f => !f.Made && PackageScanner.IsCSharpLoaderPath(f.FileName));
+
+    /// <summary>PBZModLoader is in the list, even when turned off, or its DLL is in the game by hand. A mod for it has no DLL.</summary>
     public bool IsModLoaderInstalled
     {
         get
@@ -2172,7 +2312,57 @@ public sealed class ModManager
         }
     }
 
-    private static bool IsModLoaderRecord(ModRecord mod) =>
+    private static readonly HashSet<string> EmptyIds = [];
+
+    /// <summary>Current readiness of every prerequisite runtime and loader in this game.</summary>
+    public ModPrerequisiteStates PrerequisiteStates(bool ue4ssInstalled)
+    {
+        lock (gate)
+            return PrerequisiteStatesFor(mods, mods.Where(m => m.Enabled).Select(m => m.Id).ToHashSet(), EmptyIds, ue4ssInstalled);
+    }
+
+    private ModPrerequisiteStates PrerequisiteStatesFor(
+        IReadOnlyList<ModRecord> list,
+        IReadOnlySet<string> enabledIds,
+        IReadOnlySet<string> leavingIds,
+        bool ue4ssInstalled)
+    {
+        var leaving = leavingIds.Count == 0
+            ? []
+            : list.Where(m => m.Enabled && leavingIds.Contains(m.Id)).ToList();
+
+        static bool IsOwnedByLeaving(string fullPath, List<ModRecord> owners)
+        {
+            var normalized = Path.GetFullPath(fullPath);
+            return owners.Any(m => m.Files.Any(f => f.DeployedPath is not null
+                && string.Equals(Path.GetFullPath(f.DeployedPath), normalized, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        var hasHandModLoader = ModLoaderEntries
+                .Select(name => Path.Combine(Game.BinariesPath, name))
+                .Any(path => IsModLoaderEntry(path) && !IsOwnedByLeaving(path, leaving))
+            || (ProjectPath(OldModLoaderStart) is { } oldStart && File.Exists(oldStart) && !IsOwnedByLeaving(oldStart, leaving));
+        var modLoader = list.Any(m => IsModLoaderRecord(m) && enabledIds.Contains(m.Id)) || hasHandModLoader
+            ? ModPrerequisiteState.Ready
+            : list.Any(IsModLoaderRecord) ? ModPrerequisiteState.Disabled : ModPrerequisiteState.Missing;
+
+        var hasHandModsMenu = ProjectPath(ModsMenuStart) is { } menuStart
+            && File.Exists(menuStart)
+            && !IsOwnedByLeaving(menuStart, leaving);
+        var modsMenu = list.Any(m => IsModsMenuRecord(m) && enabledIds.Contains(m.Id)) || hasHandModsMenu
+            ? ModPrerequisiteState.Ready
+            : list.Any(IsModsMenuRecord) ? ModPrerequisiteState.Disabled : ModPrerequisiteState.Missing;
+
+        var csharpPath = Path.Combine(Game.BinariesPath, Local(PackageScanner.CSharpLoaderFile));
+        var hasHandCSharpLoader = File.Exists(csharpPath) && !IsOwnedByLeaving(csharpPath, leaving);
+        var csharpLoader = hasHandCSharpLoader || list.Any(m => IsCSharpLoaderRecord(m) && enabledIds.Contains(m.Id))
+            ? ModPrerequisiteState.Ready
+            : list.Any(IsCSharpLoaderRecord) ? ModPrerequisiteState.Disabled : ModPrerequisiteState.Missing;
+
+        return new ModPrerequisiteStates(ue4ssInstalled, modLoader, modsMenu, csharpLoader);
+    }
+
+    internal static bool IsModLoaderRecord(ModRecord mod) =>
         mod.Files.Any(f => f.FileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
         && (mod.CatalogId?.Contains(ModLoaderName, StringComparison.OrdinalIgnoreCase) == true
             || mod.SourceFileName?.Contains(ModLoaderName, StringComparison.OrdinalIgnoreCase) == true);
@@ -2191,7 +2381,7 @@ public sealed class ModManager
         get
         {
             lock (gate)
-                return mods.FirstOrDefault(m => m.Files.Any(f => f.FileName.EndsWith("/" + ModsMenuStart, StringComparison.OrdinalIgnoreCase)))?.Version;
+                return mods.FirstOrDefault(IsModsMenuRecord)?.Version;
         }
     }
 

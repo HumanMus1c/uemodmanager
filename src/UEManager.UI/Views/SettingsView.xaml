@@ -30,12 +30,43 @@
                 <TextBlock Style="{StaticResource Text.Title}" Text="{ui:Loc 'Language'}" />
                 <TextBlock Margin="0,6,0,18" Style="{StaticResource Text.Body}"
                            Text="{ui:Loc 'Changes take effect immediately and are saved for the next launch.'}" />
-                <DockPanel LastChildFill="False">
+                <DockPanel Style="{StaticResource Field}" LastChildFill="False">
                     <TextBlock Style="{StaticResource FieldLabel}" Text="{ui:Loc 'Interface language'}" />
                     <ComboBox Width="240" Style="{StaticResource LanguageSelector}"
                               ItemsSource="{Binding Languages}" DisplayMemberPath="Name" SelectedValuePath="Code"
                               SelectedValue="{Binding SelectedLanguage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                               AutomationProperties.Name="{ui:Loc 'Interface language'}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}" LastChildFill="False">
+                    <TextBlock Style="{StaticResource FieldLabel}" Text="{ui:Loc 'Font'}" />
+                    <ComboBox Width="240" Style="{StaticResource LanguageSelector}"
+                              ItemsSource="{Binding Fonts}" DisplayMemberPath="Name" SelectedValuePath="Code"
+                              SelectedValue="{Binding SelectedFont, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                              AutomationProperties.Name="{ui:Loc 'Font'}" />
+                </DockPanel>
+                <DockPanel LastChildFill="False">
+                    <TextBlock Style="{StaticResource FieldLabel}" Text="{ui:Loc 'Font size'}" />
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Wait until a drag or track press ends before applying Font.Scale, so scaling does not shift the slider under the pointer. -->
+                        <Slider x:Name="FontSizeSlider" Width="240" VerticalAlignment="Center"
+                                Minimum="{Binding FontSizeMin}" Maximum="{Binding FontSizeMax}"
+                                TickFrequency="{Binding FontSizeStep}" SmallChange="{Binding FontSizeStep}"
+                                LargeChange="{Binding FontSizeStep}" IsSnapToTickEnabled="True" TickPlacement="BottomRight"
+                                Value="{Binding FontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}"
+                                Thumb.DragStarted="OnFontSizeDragStarted"
+                                Thumb.DragCompleted="OnFontSizeDragCompleted"
+                                PreviewMouseLeftButtonDown="OnFontSizePointerDown"
+                                PreviewMouseLeftButtonUp="OnFontSizePointerUp"
+                                LostMouseCapture="OnFontSizeLostMouseCapture"
+                                MouseLeave="OnFontSizeMouseLeave"
+                                PreviewKeyDown="OnFontSizePreviewKeyDown"
+                                LostKeyboardFocus="OnFontSizeLostKeyboardFocus"
+                                ValueChanged="OnFontSizeValueChanged"
+                                AutomationProperties.Name="{ui:Loc 'Font size'}" />
+                        <TextBlock Margin="14,0,0,0" MinWidth="20" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{StaticResource Brush.Text}"
+                                   Text="{Binding Value, ElementName=FontSizeSlider, StringFormat={}{0:0}}" />
+                    </StackPanel>
                 </DockPanel>
             </StackPanel>
         </Border>

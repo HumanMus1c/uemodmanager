@@ -51,6 +51,8 @@ public sealed partial class ModDetailsViewModel(MainViewModel owner, ModRecord m
         mod.Enabled ? L.T("Enabled") : L.T("Disabled"),
     }.Where(part => part is not null));
 
+    public IReadOnlyList<ModDependencyBadge> DependencyBadges => ModDependencyBadge.Build(mod, owner.DependencyInfoOf(mod));
+
     public string InstalledText => mod.InstalledAt.LocalDateTime.ToString("f", CultureInfo.CurrentCulture);
 
     /// <summary>The download or folder it was installed from, as the player knows it.</summary>

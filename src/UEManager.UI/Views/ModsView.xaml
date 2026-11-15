@@ -5,12 +5,13 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:ui="clr-namespace:UEManager.UI"
              xmlns:vm="clr-namespace:UEManager.UI.ViewModels"
+             xmlns:views="clr-namespace:UEManager.UI.Views"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=vm:MainViewModel}">
     <UserControl.Resources>
         <!-- Column widths shared by the header and every row. -->
         <GridLength x:Key="Col.Status">124</GridLength>
-        <GridLength x:Key="Col.Type">92</GridLength>
+        <GridLength x:Key="Col.Type">108</GridLength>
         <GridLength x:Key="Col.Integrity">136</GridLength>
         <GridLength x:Key="Col.Date">104</GridLength>
         <!-- Room for the mod page link and the update box of 100 above the icons, in every language. -->
@@ -34,11 +35,20 @@
             </Style.Triggers>
         </Style>
 
-        <!-- One button of the row above the list: a state or a tag. -->
+        <!-- One button of the filter rows above the list: a state, tag or prerequisite. -->
         <DataTemplate x:Key="FilterButton" DataType="{x:Type vm:TagFilterItem}">
             <Button Style="{StaticResource Button.TagFilter}" Command="{Binding Select}">
-                <TextBlock MaxWidth="240" FontSize="12" TextTrimming="CharacterEllipsis" Text="{Binding Label}" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="WarnGlyph" Margin="0,0,6,0" VerticalAlignment="Center" Style="{StaticResource Text.Icon}"
+                               FontSize="11" Foreground="{StaticResource Brush.Danger}" Text="&#xE7BA;" Visibility="Collapsed" />
+                    <TextBlock MaxWidth="240" FontSize="12" TextTrimming="CharacterEllipsis" Text="{Binding Label}" />
+                </StackPanel>
             </Button>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Tone}" Value="bad">
+                    <Setter TargetName="WarnGlyph" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
         </DataTemplate>
 
         <!-- A mod's row: in the table, and for the recommended mod in its card above it. -->
@@ -55,16 +65,28 @@
                         <ColumnDefinition Width="{DynamicResource Col.Actions}" />
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                ToolTip="{Binding ToggleHint}" ToolTipService.ShowOnDisabled="True">
                         <CheckBox Style="{StaticResource Toggle}" IsChecked="{Binding Enabled, Mode=OneWay}"
-                                  Command="{Binding ToggleCommand}" ToolTip="{ui:Loc 'Enable or disable'}" />
-                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Small}"
-                                   Text="{Binding EnabledText}" Visibility="{DynamicResource Mods.WideOnly}" />
+                                  Command="{Binding ToggleCommand}" ToolTip="{Binding ToggleHint}" ToolTipService.ShowOnDisabled="True" />
+                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center"
+                                   Text="{Binding EnabledText}" Visibility="{DynamicResource Mods.WideOnly}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Text.Small}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding CanToggle}" Value="False">
+                                            <Setter Property="Foreground" Value="{StaticResource Brush.TextDim}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Margin="0,0,16,0" VerticalAlignment="Center">
                         <Button Style="{StaticResource Button.Name}" Content="{Binding Name}"
                                 Command="{Binding ShowDetailsCommand}" ToolTip="{ui:Loc 'Show the details of this mod and every file it placed'}" />
+                        <views:DependencyBadges Margin="0,5,0,0" />
                         <TextBlock Margin="0,3,0,0" Style="{StaticResource Text.Small}" Text="{Binding Detail}" />
                         <TextBlock Margin="0,3,0,0" Style="{StaticResource Text.Small}" Foreground="{StaticResource Brush.Info}" Text="{Binding TagsText}"
                                    ToolTip="{Binding TagsText}" Visibility="{Binding TagsText, Converter={StaticResource VisibleIfSet}}" />
@@ -74,8 +96,12 @@
                                 Visibility="{Binding HasUe4ssErrors, Converter={StaticResource Visible}}" />
                     </StackPanel>
 
-                    <Border Grid.Column="2" Style="{StaticResource Badge}">
-                        <TextBlock FontFamily="{DynamicResource Font.Label}" FontSize="11" Text="{Binding KindText}" />
+                    <Border Grid.Column="2" Margin="0,0,8,0" Background="{StaticResource Brush.InfoPanel}" BorderBrush="{StaticResource Brush.Info}"
+                            ToolTip="{Binding TypeHint}">
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource Badge}" />
+                        </Border.Style>
+                        <TextBlock FontFamily="{DynamicResource Font.Label}" FontSize="11" Foreground="{StaticResource Brush.Info}" Text="{Binding KindText}" />
                     </Border>
 
                     <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center"
@@ -282,7 +308,7 @@
             <Button DockPanel.Dock="Right" Margin="10,0,0,0" Content="{ui:Loc 'Refresh'}" ui:Icon.Glyph="&#xE72C;"
                     Command="{Binding RefreshCommand}" ToolTip="F5" />
             <TextBox x:Name="SearchBox" Style="{StaticResource TextBox.Search}" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" ToolTip="Ctrl+F"
-                     Tag="{ui:Loc 'Filter: mod name, version, type, file name or tag'}" />
+                     Tag="{ui:Loc 'Filter: mod name, version, type, prerequisite, file name or tag'}" />
         </DockPanel>
 
         <!-- Which mods the list shows: by their state, and by the player's tags once a mod has one. -->
@@ -299,6 +325,19 @@
                     Visibility="{Binding HasTagFilters, Converter={StaticResource Visible}}" />
             <ItemsControl ItemsSource="{Binding TagFilters}" Focusable="False" ItemTemplate="{StaticResource FilterButton}"
                           Visibility="{Binding HasTagFilters, Converter={StaticResource Visible}}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </DockPanel>
+
+        <!-- Which mods the list shows by prerequisite dependency, like the openmods type filter bar. -->
+        <DockPanel Margin="0,0,0,6" Visibility="{Binding HasDependencyFilters, Converter={StaticResource Visible}}">
+            <TextBlock DockPanel.Dock="Left" Margin="0,7,10,6" VerticalAlignment="Top" Style="{StaticResource Text.Overline}"
+                       Text="{ui:Loc 'Prerequisites', Tracked=True}" />
+            <ItemsControl ItemsSource="{Binding DependencyFilters}" Focusable="False" ItemTemplate="{StaticResource FilterButton}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <WrapPanel />

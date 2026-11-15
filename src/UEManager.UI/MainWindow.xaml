@@ -45,6 +45,12 @@
             </StackPanel>
         </Grid>
 
+        <Grid Grid.Row="1" LayoutTransform="{DynamicResource Font.Scale}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="0" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
         <!-- Without cover art: a faint cinnabar bloom, like ink spreading on paper. -->
         <Ellipse Grid.Row="1" Width="1100" Height="820" HorizontalAlignment="Right" VerticalAlignment="Top"
                  Margin="0,-420,-360,0" IsHitTestVisible="False" Style="{StaticResource BlurBehindPicker}"
@@ -668,10 +674,11 @@
                 </StackPanel>
             </Border>
         </Grid>
+        </Grid>
 
         <!-- ===== Busy ===== -->
         <Grid Grid.RowSpan="2" Background="{StaticResource Brush.Busy}" Visibility="{Binding IsBusy, Converter={StaticResource Visible}}">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" LayoutTransform="{DynamicResource Font.Scale}">
                 <Ellipse Width="34" Height="34" Stroke="{StaticResource Brush.Accent}" StrokeThickness="2.5"
                          StrokeDashArray="14 30" RenderTransformOrigin="0.5,0.5">
                     <Ellipse.RenderTransform>

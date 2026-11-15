@@ -868,7 +868,7 @@ pages. Publish it again.
 ## Release
 
 ```powershell
-./publish.ps1
+./publish.ps1 -Verify
 ```
 
 Before a release, add its section at the top of `CHANGELOG.md`
@@ -876,28 +876,35 @@ Before a release, add its section at the top of `CHANGELOG.md`
 checks that the newest section is the app's version, so the publish stops
 without it.
 
-Publishes the app for one GitHub release, after running the tests:
+Publishes the local release packages, after running the tests:
 
 ```text
-dist/uemm/UEModManager.exe
 dist/release/uemm_<version>.zip
-dist/release/uemm_phantom-blade-zero_<version>.zip
+dist/release/uemm_<version>_x64_setup.exe
+dist/release/checksums.txt
 ```
 
-The exe is a single file, framework dependent (needs the .NET 8 Desktop
-Runtime), and passed the publish check (see Catalog switch). The same exe serves
-every game. The second zip is a byte copy of the first under the name that apps
-up to 1.7.2 look for on GitHub. Attach both to each release until GitHub's
-download count of the old-named copy stays near zero; then `-NoOldName` leaves
-it out.
+The bundled exe is a single file, framework dependent (needs the .NET 8 Desktop
+Runtime), and passes the publish check (`CheckPublishedExe`) before packaging;
+intermediate single-file staging under `dist/.build/publish` is cleaned up once
+the zip and installer are built, and no legacy-named zip copy is emitted. The
+same exe serves every game.
+
+`uemm_<version>_x64_setup.exe` is built with Inno Setup 6 (`packaging/windows/installer.iss`,
+per-user `{localappdata}\Programs\UEModManager` so `Data/` beside the exe stays
+writable and survives upgrades and uninstalls). Pass `-SkipInstaller` if Inno
+Setup is not installed, `-IsccPath <path>` to specify `ISCC.exe`, `-SkipTests`
+when tests already ran separately, and `-Verify` to run `packaging/windows/verify-packages.ps1`
+end-to-end (checksums, portable extraction + CLI smoke tests, and sandboxed
+installer install/upgrade/`Data` preservation/uninstall checks).
 
 Game profiles and theme art are built in, and so are the license texts of the
 bundled libraries (`src/UEManager.UI/Licenses`), shown on the About page. Update
 those texts when a library is added or upgraded.
 
 To publish a release on GitHub: tag it `v<version>` (as in
-`src/Directory.Build.props`) and attach the zips from `dist/release`. The update
-check reads that release.
+`src/Directory.Build.props`) and attach the packages and `checksums.txt` from
+`dist/release`. The update check reads that release.
 
 `PreRelease` in `src/Directory.Build.props` marks a pre-release: while it is
 `true`, a yellow **Pre-release** box below About opens a short note that the

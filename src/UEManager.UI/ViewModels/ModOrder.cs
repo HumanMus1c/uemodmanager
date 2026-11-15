@@ -21,6 +21,19 @@ public enum ModStateFilter
     Disabled,
 }
 
+/// <summary>Which mods the list shows by prerequisite dependency, as the prerequisite filter bar chooses.</summary>
+public enum ModDependencyFilter
+{
+    All,
+    Missing,
+    Ue4ss,
+    ModLoader,
+    ModsMenu,
+    CSharpLoader,
+    LoaderSelf,
+    Standalone,
+}
+
 /// <summary>
 /// Sorts the mod list by one column. Enabled mods come first by status, problems first by integrity, and the type goes
 /// by its name; mods that are equal there go by their name, A to Z, either way.

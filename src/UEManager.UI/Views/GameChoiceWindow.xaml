@@ -29,7 +29,7 @@
             </StackPanel>
         </Grid>
 
-        <Grid Grid.Row="1" ClipToBounds="True">
+        <Grid Grid.Row="1" ClipToBounds="True" LayoutTransform="{DynamicResource Font.Scale}">
             <!-- Theme\Art\backdrop.jpg, a little larger than its place: a blur fades out at its edges. -->
             <Image x:Name="Backdrop" Margin="-40" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality">
                 <Image.Effect>

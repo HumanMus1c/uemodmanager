@@ -333,6 +333,10 @@ internal sealed class SourceTexts
         {
             if (File.Exists(Path.Combine(folder.FullName, "UEManager.slnx")))
                 return folder.FullName;
+
+            var src = Path.Combine(folder.FullName, "src");
+            if (File.Exists(Path.Combine(src, "UEManager.slnx")))
+                return src;
         }
         throw new DirectoryNotFoundException("The src folder with UEManager.slnx was not found above the test's folder.");
     }

@@ -15,6 +15,7 @@ public class SettingsFileTests : IDisposable
     {
         game = GameLocator.Resolve(TestFolder.Profile(), folder.Game(), GameStore.Manual)!;
         manager = new ModManager(game, new AppPaths(folder.Combine("Data")));
+        InstallUe4ss();
     }
 
     public void Dispose() => folder.Dispose();

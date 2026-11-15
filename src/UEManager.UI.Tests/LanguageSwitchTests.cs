@@ -5,6 +5,8 @@ using System.Net.Http;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using UEManager.Core.Games;
@@ -41,6 +43,8 @@ public class LanguageSwitchTests
     {
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
         var originalLanguage = Localizer.Current.Language;
+        var originalFont = LanguageFonts.Font;
+        var originalFontSize = LanguageFonts.FontSize;
         var originalCulture = CultureInfo.CurrentCulture;
         var originalUiCulture = CultureInfo.CurrentUICulture;
         var originalDefault = CultureInfo.DefaultThreadCurrentCulture;
@@ -87,8 +91,12 @@ public class LanguageSwitchTests
             surface.Measure(new Size(1360, 800));
             surface.Arrange(new Rect(0, 0, 1360, 800));
             FlushBindings();
-            var selector = Descendants(surface).OfType<ComboBox>().Single();
+            var selectors = Descendants(surface).OfType<ComboBox>().ToList();
+            Assert.Equal(2, selectors.Count);
+            var selector = selectors.Single(c => ReferenceEquals(c.ItemsSource, model.Languages));
+            var fontSelector = selectors.Single(c => ReferenceEquals(c.ItemsSource, model.Fonts));
             Assert.Equal("en", selector.SelectedValue);
+            Assert.Equal(LanguageFonts.Default, fontSelector.SelectedValue);
             Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "Settings");
 
             // The control changes the existing model and saves the choice, without replacing the window or page.
@@ -99,6 +107,7 @@ public class LanguageSwitchTests
             Assert.Equal("Settings", model.SelectedPage);
             Assert.Equal("蓝图", model.SearchText);
             Assert.Equal("zh-CN", AppSettings.Load(paths).Language);
+            Assert.Equal("主题默认", Assert.IsType<FontOption>(fontSelector.SelectedItem).Name);
             Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "设置");
             Assert.Equal("zh-CN", window.Language.IetfLanguageTag, ignoreCase: true);
             Assert.Equal("影之刃零", model.GameDisplayName);
@@ -129,12 +138,76 @@ public class LanguageSwitchTests
             Assert.Equal("No release is published yet.", update.StatusHint);
             Assert.StartsWith("Test list:", catalog.TestCatalogText);
             Assert.StartsWith("The openmods list could not be loaded:", catalog.Error);
+
+            stage("checking the font size slider");
+            VerifyFontSizeSlider(app, surface, model, paths);
+
+            stage("checking dependency badges and filter pills");
+            model.SelectedPage = "Mods";
+            model.SearchText = "";
+            model.Mods.Add(new ModItemViewModel(model, new ModRecord
+            {
+                Id = "dep-loader",
+                Name = "PBZModLoader",
+                Enabled = false,
+                SourceFileName = "PBZModLoader-2.1.0.zip",
+                Files = [new ModFileRecord { Target = DeployTarget.ExeFolder, FileName = "version.dll" }],
+            }, folder));
+            model.Mods.Add(new ModItemViewModel(model, new ModRecord
+            {
+                Id = "dep-lua",
+                Name = "Sample Lua",
+                Enabled = true,
+                Files = [new ModFileRecord { Target = DeployTarget.Ue4ssMods, FileName = "Sample/Scripts/main.lua" }],
+            }, folder));
+            model.Mods.Add(new ModItemViewModel(model, new ModRecord
+            {
+                Id = "dep-pak",
+                Name = "Sample PAK",
+                Enabled = true,
+                Files = [new ModFileRecord { Target = DeployTarget.Mods, FileName = "Sample_P.pak" }],
+            }, folder));
+            model.RefreshTagFilters();
+            model.ModDetails = new ModDetailsViewModel(model, model.Mods.Single(m => m.Id == "dep-lua").Record, [], [], folder);
+            FlushBindings();
+            surface.Measure(new Size(1360, 800));
+            surface.Arrange(new Rect(0, 0, 1360, 800));
+            surface.UpdateLayout();
+            FlushBindings();
+
+            Assert.Contains(Descendants(surface).OfType<Views.DependencyBadges>(), view => view.Visibility == Visibility.Visible);
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "Prerequisite loader");
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "No prerequisite");
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "UE4SS · missing");
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == Format.Tracked("Prerequisites"));
+
+            selector.SelectedValue = "zh-CN";
+            FlushBindings();
+            surface.Measure(new Size(1360, 800));
+            surface.Arrange(new Rect(0, 0, 1360, 800));
+            surface.UpdateLayout();
+            FlushBindings();
+            Assert.Contains(model.DependencyFilters, f => f.Label == "缺少前置（2）");
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "前置加载器");
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "无需前置");
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "UE4SS · 未安装");
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == Format.Tracked("前置依赖"));
+            Assert.Contains(Descendants(surface).OfType<TextBlock>(), t => t.Text == "缺少前置（2）");
+
+            selector.SelectedValue = "en";
+            FlushBindings();
+            model.ModDetails = null;
+            foreach (var added in model.Mods.Where(m => m.Id.StartsWith("dep-", StringComparison.Ordinal)).ToList())
+                model.Mods.Remove(added);
+            model.RefreshTagFilters();
         }
         finally
         {
             stage("closing the window");
             window?.Close();
             Localizer.Current.SetLanguage(originalLanguage);
+            LanguageFonts.SetFont(originalFont);
+            LanguageFonts.SetFontSize(originalFontSize);
             CultureInfo.CurrentCulture = originalCulture;
             CultureInfo.CurrentUICulture = originalUiCulture;
             CultureInfo.DefaultThreadCurrentCulture = originalDefault;
@@ -143,6 +216,83 @@ public class LanguageSwitchTests
             app.Shutdown();
             if (Directory.Exists(folder))
                 Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    private static void VerifyFontSizeSlider(Application app, FrameworkElement surface, MainViewModel model, AppPaths paths)
+    {
+        LanguageFonts.SetFontSize(model.FontSize);
+        LanguageFonts.Follow(app.Resources);
+        var slider = Descendants(surface).OfType<Slider>().Single(s => s.Name == "FontSizeSlider");
+        var label = Descendants(VisualTreeHelper.GetParent(slider)).OfType<TextBlock>().Single();
+        Assert.Equal(13, slider.Value);
+        Assert.Equal("13", label.Text);
+
+        // Dragging previews the numeric value without scaling the UI or writing settings until DragCompleted.
+        slider.RaiseEvent(new DragStartedEventArgs(0, 0) { RoutedEvent = Thumb.DragStartedEvent });
+        slider.Value = 18;
+        FlushBindings();
+        Assert.Equal("18", label.Text);
+        Assert.Equal(13, model.FontSize);
+        Assert.Equal(13, AppSettings.Load(paths).FontSize);
+        Assert.Equal(1.0, Assert.IsType<ScaleTransform>(app.Resources["Font.Scale"]).ScaleX, precision: 6);
+
+        slider.Value = 15;
+        FlushBindings();
+        Assert.Equal("15", label.Text);
+        Assert.Equal(13, model.FontSize);
+
+        slider.RaiseEvent(new DragCompletedEventArgs(0, 0, canceled: false) { RoutedEvent = Thumb.DragCompletedEvent });
+        FlushBindings();
+        Assert.Equal(15, model.FontSize);
+        Assert.Equal(15, AppSettings.Load(paths).FontSize);
+        Assert.Equal(15.0 / 13.0, Assert.IsType<ScaleTransform>(app.Resources["Font.Scale"]).ScaleX, precision: 6);
+
+        // Pressing on the track also waits until the pointer is released.
+        slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+        {
+            RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent,
+        });
+        slider.Value = 17;
+        FlushBindings();
+        Assert.Equal("17", label.Text);
+        Assert.Equal(15, model.FontSize);
+        slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+        {
+            RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent,
+        });
+        FlushBindings();
+        Assert.Equal(17, model.FontSize);
+        Assert.Equal(17, AppSettings.Load(paths).FontSize);
+
+        // Non-pointer changes (such as keyboard navigation) still apply immediately.
+        slider.Value = 12;
+        FlushBindings();
+        Assert.Equal(12, model.FontSize);
+        Assert.Equal(12, AppSettings.Load(paths).FontSize);
+        Assert.Equal(12.0 / 13.0, Assert.IsType<ScaleTransform>(app.Resources["Font.Scale"]).ScaleX, precision: 6);
+
+        // Binding Minimum=11 before Value=16 on a fresh window must not overwrite the saved FontSize.
+        var savedModel = new MainViewModel(new GameProfile { Id = "test", DisplayName = "Phantom Blade Zero" }, paths,
+            new ArtSet(null, null)) { SelectedPage = "Settings" };
+        savedModel.FontSize = 16;
+        var secondWindow = new MainWindow { DataContext = savedModel };
+        try
+        {
+            FlushBindings();
+            var secondSurface = Assert.IsAssignableFrom<FrameworkElement>(secondWindow.Content);
+            secondSurface.Measure(new Size(1360, 800));
+            secondSurface.Arrange(new Rect(0, 0, 1360, 800));
+            FlushBindings();
+            var secondSlider = Descendants(secondSurface).OfType<Slider>().Single(s => s.Name == "FontSizeSlider");
+            var secondLabel = Descendants(VisualTreeHelper.GetParent(secondSlider)).OfType<TextBlock>().Single();
+            Assert.Equal(16, secondSlider.Value);
+            Assert.Equal(16, savedModel.FontSize);
+            Assert.Equal("16", secondLabel.Text);
+        }
+        finally
+        {
+            secondWindow.Close();
         }
     }
 

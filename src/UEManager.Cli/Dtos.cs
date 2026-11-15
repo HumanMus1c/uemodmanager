@@ -60,13 +60,14 @@ internal sealed record InstallPayload(int SchemaVersion, string Command, string 
 internal sealed record ToggleModDto(string Id, string Name, bool EnabledBefore, bool EnabledAfter, bool Changed, int DeployedFiles,
     string Integrity);
 
-internal sealed record TogglePayload(int SchemaVersion, string Command, string GameId, ToggleModDto Mod);
+internal sealed record TogglePayload(int SchemaVersion, string Command, string GameId, ToggleModDto Mod,
+    IReadOnlyList<string> DisabledDependents);
 
 internal sealed record UninstallModDto(string Id, string Name, string? Version, bool Enabled, int FileCount, long TotalSize,
     string LibraryFolder, IReadOnlyList<ModFileDto> Files);
 
 internal sealed record UninstallPayload(int SchemaVersion, string Command, string GameId, bool Confirmed, string? BackupFolder,
-    int RemainingMods, UninstallModDto Mod);
+    int RemainingMods, UninstallModDto Mod, IReadOnlyList<string> DisabledDependents);
 
 /// <summary>One save backup: a zip of the game's save folder, with the player's note and whether it is a personal one.</summary>
 internal sealed record SaveBackupDto(string Name, string Path, bool Personal, DateTimeOffset CreatedAt, long SizeBytes, string? Note);

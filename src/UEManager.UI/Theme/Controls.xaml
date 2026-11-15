@@ -1035,7 +1035,11 @@
                             <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Brush.Text}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.4" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                            <Setter Property="Opacity" Value="0.45" />
+                            <Setter TargetName="Track" Property="Background" Value="{StaticResource Brush.PanelRaised}" />
+                            <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource Brush.LineStrong}" />
+                            <Setter TargetName="Knob" Property="Fill" Value="{StaticResource Brush.TextMuted}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

@@ -52,7 +52,7 @@ internal static class InstallCommand
             Output.Json(payload);
             return 0;
         }
-        Output.Line($"Installed \"{mod.Name}\"{(mod.Version is null ? "" : $" ({mod.Version})")}: {mod.Files.Count} file(s), {mod.TypeLabel}.");
+        Output.Line($"Installed \"{mod.Name}\"{(mod.Version is null ? "" : $" ({mod.Version})")}: {mod.Files.Count} file(s), {mod.TypeLabel}{(mod.Enabled ? "" : " (disabled until prerequisites are ready)")}.");
         if (plan.Replaces is { } replaced)
             Output.Line($"Replaced \"{replaced.Name}\"{(replaced.Version is null ? "" : $" ({replaced.Version})")}.");
         if (planned.KeepBoth)

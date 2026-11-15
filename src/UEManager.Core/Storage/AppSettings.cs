@@ -6,6 +6,25 @@ public sealed class AppSettings
     /// <summary>The chosen language's code, such as "zh-CN"; null follows the Windows display language.</summary>
     public string? Language { get; set; }
 
+    public const int DefaultFontSize = 13;
+    public const int MinFontSize = 11;
+    public const int MaxFontSize = 18;
+
+    /// <summary>The chosen interface font family, or "$system" for the Windows font; null uses the theme's fonts.</summary>
+    public string? Font { get; set; }
+
+    private int fontSize = DefaultFontSize;
+
+    /// <summary>The base font size in Settings (11 to 18; 13 is the default). Old settings without it keep 13.</summary>
+    public int FontSize
+    {
+        get => fontSize;
+        set => fontSize = NormalizeFontSize(value);
+    }
+
+    public static int NormalizeFontSize(int size) =>
+        size <= 0 ? DefaultFontSize : Math.Clamp(size, MinFontSize, MaxFontSize);
+
     /// <summary>
     /// The game the app starts with, as a game profile's id; null until the player chose one, so the app asks. See
     /// <see cref="Games.GameChoice"/>.

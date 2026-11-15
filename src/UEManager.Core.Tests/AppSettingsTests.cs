@@ -89,4 +89,35 @@ public class AppSettingsTests
 
         Assert.Equal(new WindowPlacement(120.5, 40, 1400, 900, true), AppSettings.Load(paths).Window);
     }
+
+    [Theory]
+    [InlineData("{}", 13)]
+    [InlineData("{\"fontSize\":0}", 13)]
+    [InlineData("{\"fontSize\":-5}", 13)]
+    [InlineData("{\"fontSize\":8}", 11)]
+    [InlineData("{\"fontSize\":15}", 15)]
+    [InlineData("{\"fontSize\":30}", 18)]
+    public void Old_or_out_of_range_font_size_is_normalized(string json, int expected)
+    {
+        using var folder = new TestFolder();
+        var paths = new AppPaths(folder.Combine("Data"));
+        Directory.CreateDirectory(paths.Root);
+        File.WriteAllText(paths.SettingsFile, json);
+
+        Assert.Equal(expected, AppSettings.Load(paths).FontSize);
+    }
+
+    [Fact]
+    public void The_font_and_font_size_choices_survive_a_restart()
+    {
+        using var folder = new TestFolder();
+        var paths = new AppPaths(folder.Combine("Data"));
+        var settings = new AppSettings { Font = "$system", FontSize = 16 };
+
+        settings.Save(paths);
+
+        var loaded = AppSettings.Load(paths);
+        Assert.Equal("$system", loaded.Font);
+        Assert.Equal(16, loaded.FontSize);
+    }
 }

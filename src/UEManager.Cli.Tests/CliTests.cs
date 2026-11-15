@@ -236,6 +236,8 @@ public sealed class CliTests : IDisposable
     public void Keep_both_says_so_when_the_download_must_take_the_mods_place()
     {
         // A pak and a Lua mod: a folder of its own keeps the pak apart, but the Lua mod has one place in the game.
+        Write(Path.Combine(GameRoot, "platform", "steam", "dwmapi.dll"), "");
+        Write(Path.Combine(GameRoot, "platform", "steam", "ue4ss", "UE4SS.dll"), "");
         (string, string)[] Files(string version) =>
         [
             ("Mixed_P.pak", $"pak {version}"),
@@ -376,5 +378,44 @@ public sealed class CliTests : IDisposable
         Assert.Equal(1, code);
         Assert.Contains("outside the game", error);
         Assert.False(Directory.Exists(Path.Combine(ModsFolder, "unpacked")));
+    }
+
+    [Fact]
+    public void Disabling_loader_cascades_to_dependents_and_installing_with_disabled_loader_stays_off()
+    {
+        var menuFolder = Path.Combine(root, "Downloads", "Mods Menu");
+        Write(Path.Combine(menuFolder, "platform", "steam", "hid.dll"), "menu proxy");
+        Write(Path.Combine(menuFolder, "ProjectPBZ", "Content", "JavaScript", "PBZModsMenu", "bootstrap.js"), "boot");
+        Assert.Equal(0, Run("install", menuFolder, "--yes").Code);
+
+        var brighterFolder = Path.Combine(root, "Downloads", "Brighter Loot Glow");
+        Write(Path.Combine(brighterFolder, "ProjectPBZ", "Content", "JavaScript", "PBZModsMenu", "Mods", "Brighter", "main.js"), "brighter");
+        Assert.Equal(0, Run("install", brighterFolder, "--yes").Code);
+
+        var brighterGameFile = Path.Combine(GameRoot, "ProjectPBZ", "Content", "JavaScript", "PBZModsMenu", "Mods", "Brighter", "main.js");
+        Assert.True(File.Exists(brighterGameFile));
+
+        var disable = Run("disable", "Mods Menu", "--json");
+        Assert.Equal(0, disable.Code);
+        using (var doc = JsonDocument.Parse(disable.Out))
+            Assert.Equal(["Brighter Loot Glow"], doc.RootElement.GetProperty("disabledDependents").EnumerateArray().Select(e => e.GetString()!).ToArray());
+        Assert.False(File.Exists(brighterGameFile));
+
+        var blockedEnable = Run("enable", "Brighter Loot Glow");
+        Assert.Equal(1, blockedEnable.Code);
+        Assert.Contains("Mods Menu", blockedEnable.Error);
+
+        var markersFolder = Path.Combine(root, "Downloads", "Markers");
+        Write(Path.Combine(markersFolder, "ProjectPBZ", "Content", "JavaScript", "PBZModsMenu", "Mods", "Markers", "main.js"), "markers");
+        var installDisabled = Run("install", markersFolder, "--yes", "--json");
+        Assert.Equal(0, installDisabled.Code);
+        using (var doc = JsonDocument.Parse(installDisabled.Out))
+            Assert.False(doc.RootElement.GetProperty("installed").GetProperty("enabled").GetBoolean());
+
+        Assert.Equal(0, Run("enable", "Mods Menu").Code);
+        Assert.False(File.Exists(brighterGameFile));
+
+        Assert.Equal(0, Run("enable", "Brighter Loot Glow").Code);
+        Assert.True(File.Exists(brighterGameFile));
     }
 }

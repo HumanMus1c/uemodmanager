@@ -132,6 +132,8 @@ public partial class App : Application
         var profile = GameChoice.Resolve(GameChoice.Playable(games, named, AppInfo.CanChooseComingGames),
             named, settings.Game, settings.AskForGameAtStart);
         GameTheme.Apply(Resources, profile?.Id);
+        LanguageFonts.SetFont(settings.Font);
+        LanguageFonts.SetFontSize(settings.FontSize);
         LanguageFonts.Follow(Resources);
         try
         {
