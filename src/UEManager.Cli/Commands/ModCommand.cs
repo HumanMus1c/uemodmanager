@@ -13,13 +13,12 @@ internal static class ModCommand
         var manager = context.OpenManager();
         var mod = ModResolver.Resolve(manager.Mods, query);
         var before = mod.Enabled;
-        if (before != enable)
-            manager.SetEnabled(mod.Id, enable);
+        IReadOnlyList<string> dependents = before != enable ? manager.ToggleEnabled(mod.Id, enable) : [];
 
         var after = manager.Mods.First(record => record.Id == mod.Id);
         var deployed = after.Files.Count(file => file.DeployedPath is not null);
         var payload = new TogglePayload(1, enable ? "enable" : "disable", context.GameId, new ToggleModDto(mod.Id, mod.Name,
-            before, enable, before != enable, deployed, ModManager.Integrity(after).ToString()));
+            before, enable, before != enable, deployed, ModManager.Integrity(after).ToString()), dependents);
 
         if (arguments.Json)
         {
@@ -32,6 +31,8 @@ internal static class ModCommand
             Output.Line($"Enabled \"{mod.Name}\": {deployed} file(s) in the game now.");
         else
             Output.Line($"Disabled \"{mod.Name}\": its files were taken out of the game.");
+        if (dependents.Count > 0)
+            Output.Line($"Disabled dependent mod(s) too: {string.Join(", ", dependents)}.");
         return 0;
     }
 
@@ -48,7 +49,7 @@ internal static class ModCommand
 
         if (!arguments.Yes)
         {
-            var preview = new UninstallPayload(1, "uninstall", context.GameId, false, null, leftovers, null, manager.Mods.Count, view);
+            var preview = new UninstallPayload(1, "uninstall", context.GameId, false, null, leftovers, null, manager.Mods.Count, view, []);
             if (arguments.Json)
                 Output.Json(preview);
             else
@@ -59,7 +60,7 @@ internal static class ModCommand
 
         var result = manager.Uninstall(mod.Id, arguments.RemoveLeftovers);
         var payload = new UninstallPayload(1, "uninstall", context.GameId, true, result.SettingsBackup, Leftovers(result.Leftovers),
-            result.LeftoverBackup, manager.Mods.Count, view);
+            result.LeftoverBackup, manager.Mods.Count, view, result.DisabledDependents);
         if (arguments.Json)
         {
             Output.Json(payload);
@@ -70,6 +71,8 @@ internal static class ModCommand
             ? "No changed settings needed a backup."
             : $"The player's changed settings were backed up to {result.SettingsBackup}.");
         WriteLeftovers(payload);
+        if (result.DisabledDependents.Count > 0)
+            Output.Line($"Disabled dependent mod(s) too: {string.Join(", ", result.DisabledDependents)}.");
         return 0;
     }
 
