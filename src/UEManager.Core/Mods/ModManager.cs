@@ -396,6 +396,9 @@ public sealed class ModManager
             if (old is not null && !replace)
                 throw new ModException($"This download uses the same files as \"{old.Name}\". Replace that mod, or uninstall it first.");
 
+            var declaredUrls = ModPrerequisiteLinks.ExtractDeclaredUrls(
+                selected.SelectMany(p => p.Files)
+                    .Concat(preview.IgnoredFiles.Select(f => Path.Combine(preview.StagingDir, f))));
             var record = new ModRecord
             {
                 Id = Guid.NewGuid().ToString("N")[..12],
@@ -408,6 +411,7 @@ public sealed class ModManager
                 Recommended = old?.Recommended ?? false,
                 Tags = tags is null ? old?.Tags : tags.Count == 0 ? null : [.. tags],
                 NotTracked = old?.NotTracked ?? false,
+                PrerequisiteUrls = declaredUrls.Count > 0 ? declaredUrls : null,
                 Variant = VariantOf(selected),
             };
             var libraryFolder = LibraryFolderOf(record);

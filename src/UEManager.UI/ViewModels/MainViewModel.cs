@@ -1133,6 +1133,95 @@ public sealed partial class MainViewModel : LocalizedObservableObject
 
     internal void OpenPath(string path) => TryOpen(path);
 
+    internal event Action<ModItemViewModel>? ScrollToModRequested;
+
+    /// <summary>Optional HTTP client override used by automated tests when probing prerequisite release links.</summary>
+    internal HttpClient? PrerequisiteHttpForTest { get; set; }
+
+    /// <summary>Optional path/URL launcher override used by automated tests instead of opening a real browser.</summary>
+    internal Action<string>? OpenPathForTest { get; set; }
+
+    private CancellationTokenSource? prerequisiteProbeCts;
+
+    internal Task NavigateToPrerequisiteAsync(ModRecord sourceMod, string libraryFolder, ModPrerequisiteKind kind, ModPrerequisiteState state) =>
+        state == ModPrerequisiteState.Disabled
+            ? JumpToDisabledPrerequisiteAsync(sourceMod, libraryFolder, kind)
+            : OpenMissingPrerequisiteAsync(sourceMod, libraryFolder, kind);
+
+    private Task JumpToDisabledPrerequisiteAsync(ModRecord sourceMod, string libraryFolder, ModPrerequisiteKind kind)
+    {
+        var target = AllMods
+            .Where(m => ModPrerequisites.LoaderKindsOf(m.Record).Contains(kind))
+            .OrderBy(m => m.Enabled ? 1 : 0)
+            .ThenBy(m => Mods.Contains(m) ? 0 : 1)
+            .FirstOrDefault();
+        if (target is null)
+            return OpenMissingPrerequisiteAsync(sourceMod, libraryFolder, kind);
+
+        SelectedPage = "Mods";
+        if (Mods.Contains(target))
+        {
+            if (!string.IsNullOrWhiteSpace(SearchText) && !target.Matches(SearchText))
+                SearchText = "";
+            if (SelectedTag is not null && !ModTags.Has(target.Record, SelectedTag))
+                SelectedTag = null;
+            if (DependencyFilter != ModDependencyFilter.All && !target.Matches(DependencyFilter))
+                DependencyFilter = ModDependencyFilter.All;
+            if ((StateFilter == ModStateFilter.Enabled && !target.Enabled)
+                || (StateFilter == ModStateFilter.Disabled && target.Enabled))
+                StateFilter = ModStateFilter.All;
+        }
+
+        ScrollToModRequested?.Invoke(target);
+        target.TriggerHighlight();
+        return Task.CompletedTask;
+    }
+
+    private async Task OpenMissingPrerequisiteAsync(ModRecord sourceMod, string libraryFolder, ModPrerequisiteKind kind)
+    {
+        var name = ModDependencyBadge.PrerequisiteName(kind);
+        var candidates = ModPrerequisiteLinks.CandidateUrls(
+            kind,
+            Profile,
+            sourceMod,
+            libraryFolder,
+            catalogMods.Values,
+            RecommendedMain.Mod);
+        if (candidates.Count == 0)
+        {
+            ShowToast(L.F($"Could not reach a download page for {name}."), isError: true);
+            return;
+        }
+
+        prerequisiteProbeCts?.Cancel();
+        prerequisiteProbeCts?.Dispose();
+        var cts = prerequisiteProbeCts = new CancellationTokenSource();
+        var token = cts.Token;
+
+        ShowToast(L.F($"Checking download links for {name}…"));
+        try
+        {
+            var client = PrerequisiteHttpForTest ?? Http;
+            var reachable = await ModPrerequisiteLinks.ResolveFirstReachableUrlAsync(
+                client, candidates, Profile, AppInfo.Version, cancellation: token);
+            if (token.IsCancellationRequested)
+                return;
+            if (reachable is not null)
+            {
+                DismissToast();
+                TryOpen(reachable);
+            }
+            else
+            {
+                ShowToast(L.F($"Could not reach a download page for {name}."), isError: true);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded by a newer prerequisite click.
+        }
+    }
+
     internal void CloseUe4ssGuide() => Ue4ssGuide = null;
 
     internal async Task InstallUe4ssFromFileAsync()
@@ -2137,6 +2226,11 @@ public sealed partial class MainViewModel : LocalizedObservableObject
 
     private void TryOpen(string path)
     {
+        if (OpenPathForTest is { } testOpen)
+        {
+            testOpen(path);
+            return;
+        }
         try
         {
             Shell.Open(path);

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using UEManager.Core.Mods;
 using UEManager.UI.Services;
@@ -122,6 +123,64 @@ public sealed partial class ModItemViewModel : LocalizedObservableObject
     public string ToggleHint => ModDependencyBadge.ToggleHint(DependencyInfo);
 
     public IReadOnlyList<ModDependencyBadge> DependencyBadges => ModDependencyBadge.Build(record, DependencyInfo);
+
+    /// <summary>
+    /// One entry per unmet prerequisite shown below a blocked mod's toggle switch: light-red status prefix plus a
+    /// clickable pale-yellow capsule naming the prerequisite.
+    /// </summary>
+    public IReadOnlyList<UnmetPrerequisiteItem> UnmetPrerequisites =>
+        [
+            .. DependencyInfo.Unmet.Select(req =>
+            {
+                var name = ModDependencyBadge.PrerequisiteName(req.Kind);
+                var prefix = req.State == ModPrerequisiteState.Disabled
+                    ? L.T("Not enabled")
+                    : L.T("Not installed");
+                var tooltip = req.State == ModPrerequisiteState.Disabled
+                    ? L.F($"Jump to {name} in the mod list")
+                    : L.F($"Open a download page for {name}");
+                return new UnmetPrerequisiteItem(
+                    req.Kind,
+                    req.State,
+                    prefix,
+                    name,
+                    tooltip,
+                    new AsyncRelayCommand(() => owner.NavigateToPrerequisiteAsync(record, libraryFolder, req.Kind, req.State)));
+            }),
+        ];
+
+    public bool HasUnmetPrerequisites => DependencyInfo.Unmet.Count > 0;
+
+    private CancellationTokenSource? highlightCts;
+
+    /// <summary>True briefly while flashing the row background after jumping to this prerequisite mod.</summary>
+    [ObservableProperty]
+    private bool isHighlighted;
+
+    internal void TriggerHighlight(TimeSpan? duration = null)
+    {
+        highlightCts?.Cancel();
+        highlightCts?.Dispose();
+        highlightCts = new CancellationTokenSource();
+        var token = highlightCts.Token;
+        if (IsHighlighted)
+            IsHighlighted = false;
+        IsHighlighted = true;
+        _ = ClearHighlightAfterDelayAsync(duration ?? TimeSpan.FromMilliseconds(1600), token);
+    }
+
+    private async Task ClearHighlightAfterDelayAsync(TimeSpan duration, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(duration, token);
+            IsHighlighted = false;
+        }
+        catch (OperationCanceledException)
+        {
+            // Replaced by a newer highlight request.
+        }
+    }
 
     /// <summary>A mod of game files or exe files puts files beside the game's own, so its row has a shade of its own.</summary>
     public bool IsBesideGameFiles => record.TypeLabel is ModTypes.GameFiles or ModTypes.ExeFiles;

@@ -52,6 +52,13 @@ public sealed class ModRecord
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool NotTracked { get; set; }
 
+    /// <summary>
+    /// Prerequisite installation, release, or repository URLs declared by the mod package itself, keyed by
+    /// <see cref="ModPrerequisiteKind"/>; null when none were declared.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<ModPrerequisiteKind, List<string>>? PrerequisiteUrls { get; set; }
+
     public List<ModFileRecord> Files { get; set; } = [];
 
     /// <summary>Short type name for the interface, such as PAK or UE4SS Lua. A settings file the mod made says nothing about it.</summary>

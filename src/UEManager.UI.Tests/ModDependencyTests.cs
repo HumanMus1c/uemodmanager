@@ -1,4 +1,6 @@
 using System.IO;
+using System.Net;
+using System.Net.Http;
 using System.Windows.Threading;
 using UEManager.Core.Games;
 using UEManager.Core.Mods;
@@ -465,4 +467,114 @@ public sealed class ModDependencyTests : IDisposable
         Assert.NotNull(model.Toast);
         Assert.Contains("Brighter Loot Glow", model.Toast!.Text);
     });
+
+    [Fact]
+    public void Unmet_prerequisites_render_lines_jump_to_disabled_loader_and_probe_missing_links() => UiThread.Run(() =>
+    {
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
+        var model = new MainViewModel(
+            new GameProfile
+            {
+                Id = "phantom-blade-zero",
+                DisplayName = "Phantom Blade Zero",
+                ProjectFolder = "TestGame",
+                Ue4ssDownloadUrl = "https://dead-ue4ss.example/releases",
+                ModPageUrl = "https://www.nexusmods.com/phantombladezero/mods/{id}",
+            },
+            CreatePaths(),
+            new ArtSet(null, null));
+
+        var modsMenu = AddMod(model, "Mods Menu", enabled: false,
+            "Mods Menu 149 0.9.8.zip", null,
+            (DeployTarget.InstallRoot, "TestGame/Binaries/Win64/hid.dll"),
+            (DeployTarget.InstallRoot, "TestGame/Content/JavaScript/PBZModsMenu/bootstrap.js"));
+
+        // Hybrid mod with BOTH a disabled prerequisite (Mods Menu) and a missing prerequisite (UE4SS).
+        var hybrid = AddMod(model, "HybridMod", enabled: false, null, ["Combat"],
+            (DeployTarget.InstallRoot, "TestGame/Content/JavaScript/PBZModsMenu/Mods/HybridMod/main.js"),
+            (DeployTarget.Ue4ssMods, "HybridMod/Scripts/main.lua"));
+        hybrid.Record.PrerequisiteUrls = new Dictionary<ModPrerequisiteKind, List<string>>
+        {
+            [ModPrerequisiteKind.Ue4ss] = ["https://dead-declared.example/ue4ss", "https://live-declared.example/ue4ss/releases"],
+        };
+
+        Assert.True(hybrid.HasUnmetPrerequisites);
+        Assert.Equal(2, hybrid.UnmetPrerequisites.Count);
+        Assert.Equal("Not installed", hybrid.UnmetPrerequisites[0].StatusPrefix);
+        Assert.Equal("UE4SS", hybrid.UnmetPrerequisites[0].PrerequisiteName);
+        Assert.True(hybrid.UnmetPrerequisites[0].IsMissing);
+        Assert.Equal("Not enabled", hybrid.UnmetPrerequisites[1].StatusPrefix);
+        Assert.Equal("Mods Menu", hybrid.UnmetPrerequisites[1].PrerequisiteName);
+        Assert.True(hybrid.UnmetPrerequisites[1].IsDisabled);
+
+        L.Current.SetLanguage("zh-CN");
+        Assert.Equal("未安装", hybrid.UnmetPrerequisites[0].StatusPrefix);
+        Assert.Equal("未启用", hybrid.UnmetPrerequisites[1].StatusPrefix);
+        L.Current.SetLanguage(L.English);
+
+        // Apply restrictive filters that hide Mods Menu; clicking [Mods Menu] clears conflicting filters, requests scroll, and flashes row.
+        model.SelectedPage = "About";
+        model.SearchText = "HybridMod";
+        model.SelectedTag = "Combat";
+        model.StateFilter = ModStateFilter.Enabled;
+        model.DependencyFilter = ModDependencyFilter.Missing;
+        Assert.DoesNotContain(modsMenu, model.ModsView.Cast<ModItemViewModel>());
+
+        ModItemViewModel? scrolledTarget = null;
+        model.ScrollToModRequested += target => scrolledTarget = target;
+
+        hybrid.UnmetPrerequisites[1].NavigateCommand.Execute(null);
+
+        Assert.Equal("Mods", model.SelectedPage);
+        Assert.Equal("", model.SearchText);
+        Assert.Null(model.SelectedTag);
+        Assert.Equal(ModStateFilter.All, model.StateFilter);
+        Assert.Equal(ModDependencyFilter.All, model.DependencyFilter);
+        Assert.Contains(modsMenu, model.ModsView.Cast<ModItemViewModel>());
+        Assert.Same(modsMenu, scrolledTarget);
+        Assert.True(modsMenu.IsHighlighted);
+
+        // Clicking missing [UE4SS] probes declared/official URLs sequentially, skipping 404s and opening the first reachable URL.
+        var probedUrls = new List<string>();
+        var openedUrls = new List<string>();
+        using var testClient = new HttpClient(new StubHandler(req =>
+        {
+            var url = req.RequestUri!.ToString();
+            probedUrls.Add(url);
+            return Task.FromResult(new HttpResponseMessage(
+                url.Contains("live-declared.example", StringComparison.Ordinal) ? HttpStatusCode.OK : HttpStatusCode.NotFound));
+        }));
+        model.PrerequisiteHttpForTest = testClient;
+        model.OpenPathForTest = url => openedUrls.Add(url);
+
+        var navTask = ((CommunityToolkit.Mvvm.Input.IAsyncRelayCommand)hybrid.UnmetPrerequisites[0].NavigateCommand).ExecuteAsync(null);
+        WaitFor(navTask);
+
+        Assert.Equal(["https://dead-declared.example/ue4ss", "https://live-declared.example/ue4ss/releases"], probedUrls);
+        Assert.Equal(["https://live-declared.example/ue4ss/releases"], openedUrls);
+
+        // When all candidate URLs fail or 404, show an error toast without calling OpenPath.
+        openedUrls.Clear();
+        using var failingClient = new HttpClient(new StubHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))));
+        model.PrerequisiteHttpForTest = failingClient;
+        var failTask = ((CommunityToolkit.Mvvm.Input.IAsyncRelayCommand)hybrid.UnmetPrerequisites[0].NavigateCommand).ExecuteAsync(null);
+        WaitFor(failTask);
+        Assert.Empty(openedUrls);
+        Assert.NotNull(model.Toast);
+        Assert.True(model.Toast!.IsError);
+        Assert.Contains("UE4SS", model.Toast.Text);
+    });
+
+    private AppPaths CreatePaths()
+    {
+        var paths = new AppPaths(Path.Combine(folder, "Data"));
+        paths.EnsureWritable();
+        return paths;
+    }
+
+    private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            respond(request);
+    }
 }

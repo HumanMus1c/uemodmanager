@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http;
+using UEManager.Core.Catalog;
 using UEManager.Core.Games;
 using UEManager.Core.Mods;
 using UEManager.Core.Storage;
@@ -332,5 +335,118 @@ public class ModPrerequisitesTests : IDisposable
         var keptByHand = reloaded.UninstallWithDetails(pbzLoader.Id);
         Assert.Empty(keptByHand.DisabledDependents);
         Assert.True(reloaded.Mods.Single(m => m.Id == regen.Id).Enabled);
+    }
+
+    [Fact]
+    public void Declared_prerequisite_urls_are_extracted_and_prioritized_on_install()
+    {
+        folder.File(@"Downloads\DeclaredMod\manifest.json", """
+            {
+              "prerequisites": {
+                "ModsMenu": [
+                  "https://github.com/example/modsmenu/releases/latest",
+                  "https://www.nexusmods.com/phantombladezero/mods/149"
+                ],
+                "PBZModLoader": "https://github.com/example/pbzmodloader"
+              }
+            }
+            """);
+        folder.File(@"Downloads\DeclaredMod\README.md", """
+            # Sample Mod
+            Requires UE4SS: https://github.com/example/custom-ue4ss/releases
+            My own mod page: https://www.nexusmods.com/phantombladezero/mods/999
+            """);
+        folder.File(@"Downloads\DeclaredMod\Ue4ssMods\Sample\Scripts\main.lua", "print('ok')");
+
+        var installed = InstallAll(folder.Combine("Downloads", "DeclaredMod"), "DeclaredMod");
+
+        Assert.NotNull(installed.PrerequisiteUrls);
+        Assert.Equal(
+            ["https://github.com/example/modsmenu/releases/latest", "https://www.nexusmods.com/phantombladezero/mods/149"],
+            installed.PrerequisiteUrls![ModPrerequisiteKind.ModsMenu]);
+        Assert.Equal(
+            ["https://github.com/example/pbzmodloader"],
+            installed.PrerequisiteUrls[ModPrerequisiteKind.ModLoader]);
+        Assert.Equal(
+            ["https://github.com/example/custom-ue4ss/releases"],
+            installed.PrerequisiteUrls[ModPrerequisiteKind.Ue4ss]);
+
+        // Persisted cleanly in mods.json across ModManager reload.
+        var reloaded = new ModManager(game, new AppPaths(folder.Combine("Data")));
+        var reloadedMod = reloaded.Mods.Single(m => m.Id == installed.Id);
+        Assert.Equal(
+            ["https://github.com/example/modsmenu/releases/latest", "https://www.nexusmods.com/phantombladezero/mods/149"],
+            reloadedMod.PrerequisiteUrls![ModPrerequisiteKind.ModsMenu]);
+
+        var catalog = new[]
+        {
+            new CatalogMod("kintaromodding/phantombladezero_pbzmodloader", "PBZModLoader", "", "", null, null, [], "MIT",
+                "https://openmods.nexus/mods/kintaromodding/phantombladezero_pbzmodloader",
+                "https://github.com/KintaroModding/phantombladezero_pbzmodloader",
+                null,
+                new CatalogRelease("v2.1.0", null, "https://github.com/KintaroModding/phantombladezero_pbzmodloader/releases/latest", [])),
+        };
+        var candidates = ModPrerequisiteLinks.CandidateUrls(
+            ModPrerequisiteKind.ModLoader,
+            new GameProfile { Id = "phantom-blade-zero", DisplayName = "Phantom Blade Zero" },
+            reloadedMod,
+            reloaded.LibraryFolderOf(reloadedMod),
+            catalog);
+
+        var ue4ssCandidates = ModPrerequisiteLinks.CandidateUrls(
+            ModPrerequisiteKind.Ue4ss,
+            new GameProfile { Id = "phantom-blade-zero", DisplayName = "Phantom Blade Zero" },
+            reloadedMod,
+            reloaded.LibraryFolderOf(reloadedMod),
+            catalog);
+        Assert.Equal("https://github.com/example/custom-ue4ss/releases", ue4ssCandidates[0]);
+
+        Assert.Equal("https://github.com/example/pbzmodloader", candidates[0]);
+        Assert.Contains("https://github.com/KintaroModding/phantombladezero_pbzmodloader/releases/latest", candidates);
+        Assert.Contains("https://openmods.nexus/mods/kintaromodding/phantombladezero_pbzmodloader", candidates);
+        Assert.DoesNotContain("https://www.nexusmods.com/phantombladezero/mods/999", candidates);
+    }
+
+    [Fact]
+    public async Task Sequential_probe_skips_404_and_errors_and_stops_at_first_reachable_url()
+    {
+        var visited = new List<(HttpMethod Method, string Url)>();
+        using var http = new HttpClient(new StubHandler(request =>
+        {
+            var url = request.RequestUri!.ToString();
+            visited.Add((request.Method, url));
+            if (url.Contains("dead.example", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            if (url.Contains("timeout.example", StringComparison.Ordinal))
+                throw new HttpRequestException("Simulated network error");
+            if (url.Contains("getonly.example", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(
+                    request.Method == HttpMethod.Head ? HttpStatusCode.MethodNotAllowed : HttpStatusCode.OK));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }));
+
+        var resolved = await ModPrerequisiteLinks.ResolveFirstReachableUrlAsync(http, [
+            "https://dead.example/404",
+            "https://timeout.example/fail",
+            "https://getonly.example/releases",
+            "https://never-reached.example/after",
+        ]);
+
+        Assert.Equal("https://getonly.example/releases", resolved);
+        Assert.DoesNotContain(visited, v => v.Url.Contains("never-reached.example", StringComparison.Ordinal));
+        Assert.Contains(visited, v => v.Method == HttpMethod.Head && v.Url == "https://getonly.example/releases");
+        Assert.Contains(visited, v => v.Method == HttpMethod.Get && v.Url == "https://getonly.example/releases");
+
+        var none = await ModPrerequisiteLinks.ResolveFirstReachableUrlAsync(http, [
+            "https://dead.example/404",
+            "https://timeout.example/fail",
+        ]);
+        Assert.Null(none);
+    }
+
+    private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            respond(request);
     }
 }

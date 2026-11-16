@@ -689,6 +689,37 @@
         </Style.Triggers>
     </Style>
 
+    <!-- Text-height pale-yellow clickable capsule around an unmet prerequisite name below a blocked mod's switch. -->
+    <Style x:Key="Button.PrerequisitePill" TargetType="Button">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FontFamily" Value="{DynamicResource Font.Label}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Padding" Value="6,0,6,1" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{StaticResource Brush.PrerequisitePillText}" />
+        <Setter Property="Background" Value="{StaticResource Brush.PrerequisitePillBg}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Brush.PrerequisitePillBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Pill" Padding="{TemplateBinding Padding}" CornerRadius="9" BorderThickness="{TemplateBinding BorderThickness}"
+                            Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Pill" Property="Background" Value="{StaticResource Brush.PrerequisitePillHover}" />
+                            <Setter TargetName="Pill" Property="BorderBrush" Value="{StaticResource Brush.PrerequisitePillText}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- A table column header that sorts the list. Tag holds the glyph: a red arrow on the sorted
          column, a grey dash (E738) on a column that can be sorted but is not. -->
     <!-- A name that opens more about it, such as a mod's name in the Mods list: underlined on hover. -->
