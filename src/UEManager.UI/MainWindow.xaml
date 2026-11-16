@@ -253,10 +253,18 @@
                         </Rectangle.Fill>
                     </Rectangle>
                 </Grid>
-                <ScrollViewer Grid.Row="1" Style="{StaticResource ScrollViewer.Overlay}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ScrollViewer.Style>
+                        <Style TargetType="ScrollViewer" BasedOn="{StaticResource ScrollViewer.Overlay}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedPage}" Value="Mods">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ScrollViewer.Style>
                     <Grid MaxWidth="1120" Margin="48,0,48,28">
                         <views:HomeView Visibility="{Binding SelectedPage, Converter={StaticResource Page}, ConverterParameter=Home}" />
-                        <views:ModsView x:Name="ModsPage" Visibility="{Binding SelectedPage, Converter={StaticResource Page}, ConverterParameter=Mods}" />
                         <views:Ue4ssView x:Name="Ue4ssPage" Visibility="{Binding SelectedPage, Converter={StaticResource Page}, ConverterParameter=Ue4ss}" />
                         <views:SaveBackupsView Visibility="{Binding SelectedPage, Converter={StaticResource Page}, ConverterParameter=SaveBackups}" />
                         <ContentControl Focusable="False" Content="{DynamicResource CatalogPage}"
@@ -265,6 +273,9 @@
                         <views:AboutView Visibility="{Binding SelectedPage, Converter={StaticResource Page}, ConverterParameter=About}" />
                     </Grid>
                 </ScrollViewer>
+                <!-- ModsView manages its own ScrollViewer below its fixed transparent header container. -->
+                <views:ModsView x:Name="ModsPage" Grid.Row="0" Grid.RowSpan="2"
+                                Visibility="{Binding SelectedPage, Converter={StaticResource Page}, ConverterParameter=Mods}" />
             </Grid>
         </Grid>
 

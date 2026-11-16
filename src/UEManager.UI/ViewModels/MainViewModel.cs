@@ -73,7 +73,10 @@ public sealed partial class MainViewModel : LocalizedObservableObject
             AppInfo.ReleaseFileName);
         Ue4ssLogPanel = new Ue4ssLogViewModel(this);
         ModsView = CollectionViewSource.GetDefaultView(Mods);
-        ModsView.Filter = item => item is ModItemViewModel mod && mod.Matches(SearchText) && ModTags.Has(mod.Record, SelectedTag)
+        ModsView.Filter = item => item is ModItemViewModel mod
+            && mod.Matches(SearchText)
+            && ModTags.Has(mod.Record, SelectedTag)
+            && mod.Matches(DependencyFilter)
             && StateFilter switch
             {
                 ModStateFilter.Enabled => mod.Enabled,
@@ -106,6 +109,7 @@ public sealed partial class MainViewModel : LocalizedObservableObject
             {
                 gameRunningSince = null;
                 await TakeMadeSettingsAsync();
+                await EnforcePrerequisitesAsync();
                 await ReportUe4ssErrorsAsync(game, since);
             }
         }
@@ -339,6 +343,20 @@ public sealed partial class MainViewModel : LocalizedObservableObject
     /// <summary>The buttons All, Enabled and Disabled above the list, each with its count.</summary>
     [ObservableProperty]
     private IReadOnlyList<TagFilterItem> stateFilters = [];
+
+    /// <summary>Current readiness of every prerequisite runtime and loader, refreshed once per mod list rebuild.</summary>
+    private ModPrerequisiteStates? prerequisiteStates;
+
+    /// <summary>The prerequisite category whose matching mods the list shows.</summary>
+    [ObservableProperty]
+    private ModDependencyFilter dependencyFilter;
+
+    /// <summary>The prerequisite filter buttons above the list, each with its count.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDependencyFilters))]
+    private IReadOnlyList<TagFilterItem> dependencyFilters = [];
+
+    public bool HasDependencyFilters => DependencyFilters.Count > 0;
 
     /// <summary>The row of filter buttons shows once there is a mod in the list.</summary>
     public bool HasFilterRow => Mods.Count > 0;
@@ -704,9 +722,11 @@ public sealed partial class MainViewModel : LocalizedObservableObject
     {
         if (!EnsureGame())
             return;
-        var count = 0;
-        if (await RunAsync(L.T("Turning mods back on…"), async () => count = await Task.Run(manager!.TurnBackOn)))
-            ShowToast(L.Plural(count, "{0} mod is on again.", "{0} mods are on again."));
+        (int TurnedOn, IReadOnlyList<string> SkippedMods) result = (0, []);
+        if (await RunAsync(L.T("Turning mods back on…"), async () => result = await Task.Run(manager!.TurnBackOnWithDetails)))
+            ShowToast(L.Join(
+                L.Plural(result.TurnedOn, "{0} mod is on again.", "{0} mods are on again."),
+                SkippedPrerequisitesText(result.SkippedMods)));
         RefreshMods();
     }
 
@@ -816,7 +836,13 @@ public sealed partial class MainViewModel : LocalizedObservableObject
 
     internal async Task SetEnabledAsync(ModItemViewModel item, bool enabled)
     {
-        await RunAsync(enabled ? L.T("Enabling…") : L.T("Disabling…"), () => Task.Run(() => manager!.SetEnabled(item.Id, enabled)));
+        IReadOnlyList<string> dependents = [];
+        if (await RunAsync(enabled ? L.T("Enabling…") : L.T("Disabling…"),
+                async () => dependents = await Task.Run(() => manager!.ToggleEnabled(item.Id, enabled)))
+            && DisabledDependentsText(item.Name, dependents) is { } message)
+        {
+            ShowToast(message);
+        }
         RefreshMods();
     }
 
@@ -859,7 +885,7 @@ public sealed partial class MainViewModel : LocalizedObservableObject
                     message = L.F($"Uninstalled \"{item.Name}\". {result.Leftovers.Count} file(s) it left were moved to {moved}.");
             }
         }
-        ShowToast(message);
+        ShowToast(L.Join(message, DisabledDependentsText(item.Name, result.DisabledDependents)));
         RefreshMods();
         if (IsUnmanagedOpen)
             ShowUnmanaged();
@@ -871,6 +897,19 @@ public sealed partial class MainViewModel : LocalizedObservableObject
         var names = string.Join(", ", leftovers.Take(3).Select(leftover => leftover.RelativePath));
         return leftovers.Count > 3 ? L.F($"{names} and {leftovers.Count - 3} more") : names;
     }
+
+    private static string? DisabledDependentsText(string loaderName, IReadOnlyList<string> dependents) =>
+        dependents.Count == 0 ? null : L.Plural(dependents.Count,
+            "\"{1}\" depends on \"{2}\" and was disabled too.",
+            "{0} mods depend on \"{2}\" and were disabled too: {1}.",
+            string.Join(", ", dependents),
+            loaderName);
+
+    private static string? SkippedPrerequisitesText(IReadOnlyList<string> skipped) =>
+        skipped.Count == 0 ? null : L.Plural(skipped.Count,
+            "Skipped \"{1}\" because its prerequisite is missing or disabled.",
+            "Skipped {0} mods because their prerequisites are missing or disabled: {1}.",
+            string.Join(", ", skipped));
 
     /// <summary>Opens the mod's settings files in the game in the app's own settings editor.</summary>
     internal void EditSettings(ModItemViewModel item)
@@ -959,13 +998,14 @@ public sealed partial class MainViewModel : LocalizedObservableObject
     /// <summary>Turns on exactly the mods of a set and closes the sets.</summary>
     internal async Task ApplyModSetAsync(string name)
     {
-        (int On, int Off) changed = default;
-        if (await RunAsync(L.F($"Turning on the set \"{name}\"…"), async () => changed = await Task.Run(() => manager!.ApplySet(name))))
+        ModBatchResult? changed = null;
+        if (await RunAsync(L.F($"Turning on the set \"{name}\"…"), async () => changed = await Task.Run(() => manager!.ApplySetWithDetails(name))))
         {
             ModSets = null;
-            ShowToast(changed is (0, 0)
+            var baseText = (changed!.On, changed.Off) is (0, 0)
                 ? L.F($"Set \"{name}\" was already in use.")
-                : L.F($"Set \"{name}\" is in use. Turned on: {changed.On}. Turned off: {changed.Off}."));
+                : L.F($"Set \"{name}\" is in use. Turned on: {changed.On}. Turned off: {changed.Off}.");
+            ShowToast(L.Join(baseText, SkippedPrerequisitesText(changed.SkippedMods)));
         }
         RefreshMods();
         ModSets?.Load(manager!.Sets, OwnMods);
@@ -1070,12 +1110,109 @@ public sealed partial class MainViewModel : LocalizedObservableObject
         RefreshMods();
         if (showMods)
             SelectedPage = "Mods";
-        ShowToast(!choice.Replace ? L.F($"Installed \"{installed.Name}\".")
-            : installed.Version is null ? L.F($"Updated \"{installed.Name}\".")
-            : L.F($"Updated \"{installed.Name}\" to version {installed.Version}."));
+        ShowToast(!choice.Replace
+            ? (installed.Enabled
+                ? L.F($"Installed \"{installed.Name}\".")
+                : L.F($"Installed \"{installed.Name}\" (disabled until its prerequisite is ready)."))
+            : installed.Version is null
+                ? (installed.Enabled
+                    ? L.F($"Updated \"{installed.Name}\".")
+                    : L.F($"Updated \"{installed.Name}\" (disabled until its prerequisite is ready)."))
+                : (installed.Enabled
+                    ? L.F($"Updated \"{installed.Name}\" to version {installed.Version}.")
+                    : L.F($"Updated \"{installed.Name}\" to version {installed.Version} (disabled until its prerequisite is ready).")));
     }
 
     internal void OpenPath(string path) => TryOpen(path);
+
+    internal event Action<ModItemViewModel>? ScrollToModRequested;
+
+    /// <summary>Optional HTTP client override used by automated tests when probing prerequisite release links.</summary>
+    internal HttpClient? PrerequisiteHttpForTest { get; set; }
+
+    /// <summary>Optional path/URL launcher override used by automated tests instead of opening a real browser.</summary>
+    internal Action<string>? OpenPathForTest { get; set; }
+
+    private CancellationTokenSource? prerequisiteProbeCts;
+
+    internal Task NavigateToPrerequisiteAsync(ModRecord sourceMod, string libraryFolder, ModPrerequisiteKind kind, ModPrerequisiteState state) =>
+        state == ModPrerequisiteState.Disabled
+            ? JumpToDisabledPrerequisiteAsync(sourceMod, libraryFolder, kind)
+            : OpenMissingPrerequisiteAsync(sourceMod, libraryFolder, kind);
+
+    private Task JumpToDisabledPrerequisiteAsync(ModRecord sourceMod, string libraryFolder, ModPrerequisiteKind kind)
+    {
+        var target = AllMods
+            .Where(m => ModPrerequisites.LoaderKindsOf(m.Record).Contains(kind))
+            .OrderBy(m => m.Enabled ? 1 : 0)
+            .ThenBy(m => Mods.Contains(m) ? 0 : 1)
+            .FirstOrDefault();
+        if (target is null)
+            return OpenMissingPrerequisiteAsync(sourceMod, libraryFolder, kind);
+
+        SelectedPage = "Mods";
+        if (Mods.Contains(target))
+        {
+            if (!string.IsNullOrWhiteSpace(SearchText) && !target.Matches(SearchText))
+                SearchText = "";
+            if (SelectedTag is not null && !ModTags.Has(target.Record, SelectedTag))
+                SelectedTag = null;
+            if (DependencyFilter != ModDependencyFilter.All && !target.Matches(DependencyFilter))
+                DependencyFilter = ModDependencyFilter.All;
+            if ((StateFilter == ModStateFilter.Enabled && !target.Enabled)
+                || (StateFilter == ModStateFilter.Disabled && target.Enabled))
+                StateFilter = ModStateFilter.All;
+        }
+
+        ScrollToModRequested?.Invoke(target);
+        target.TriggerHighlight();
+        return Task.CompletedTask;
+    }
+
+    private async Task OpenMissingPrerequisiteAsync(ModRecord sourceMod, string libraryFolder, ModPrerequisiteKind kind)
+    {
+        var name = ModDependencyBadge.PrerequisiteName(kind);
+        var candidates = ModPrerequisiteLinks.CandidateUrls(
+            kind,
+            Profile,
+            sourceMod,
+            libraryFolder,
+            catalogMods.Values,
+            RecommendedMain.Mod);
+        if (candidates.Count == 0)
+        {
+            ShowToast(L.F($"Could not reach a download page for {name}."), isError: true);
+            return;
+        }
+
+        prerequisiteProbeCts?.Cancel();
+        prerequisiteProbeCts?.Dispose();
+        var cts = prerequisiteProbeCts = new CancellationTokenSource();
+        var token = cts.Token;
+
+        ShowToast(L.F($"Checking download links for {name}…"));
+        try
+        {
+            var client = PrerequisiteHttpForTest ?? Http;
+            var reachable = await ModPrerequisiteLinks.ResolveFirstReachableUrlAsync(
+                client, candidates, Profile, AppInfo.Version, cancellation: token);
+            if (token.IsCancellationRequested)
+                return;
+            if (reachable is not null)
+            {
+                DismissToast();
+                TryOpen(reachable);
+            }
+            else
+            {
+                ShowToast(L.F($"Could not reach a download page for {name}."), isError: true);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded by a newer prerequisite click.
+        }
+    }
 
     internal void CloseUe4ssGuide() => Ue4ssGuide = null;
 
@@ -1361,10 +1498,27 @@ public sealed partial class MainViewModel : LocalizedObservableObject
     /// <summary>F5: checks the mods' files in the game again, and on the UE4SS page reads its log again.</summary>
     internal async Task ReloadAsync()
     {
-        RefreshMods();
+        if (await EnforcePrerequisitesAsync() is [])
+            RefreshMods();
         await CheckUe4ssBuildAsync();
         if (SelectedPage == "Ue4ss")
             await RefreshUe4ssLogAsync();
+    }
+
+    private async Task<IReadOnlyList<string>> EnforcePrerequisitesAsync()
+    {
+        if (manager is null)
+            return [];
+        IReadOnlyList<string> disabled = [];
+        if (!await RunAsync(L.T("Checking mod prerequisites…"), async () => disabled = await Task.Run(manager.EnforcePrerequisites))
+            || disabled.Count == 0)
+            return [];
+        RefreshMods();
+        ShowToast(L.Plural(disabled.Count,
+            "\"{1}\" was disabled because its prerequisite is missing or disabled.",
+            "{0} mods were disabled because their prerequisites are missing or disabled: {1}.",
+            string.Join(", ", disabled)));
+        return disabled;
     }
 
     /// <summary>The button for F5, as the player may have changed the mods folder by hand.</summary>
@@ -1731,6 +1885,12 @@ public sealed partial class MainViewModel : LocalizedObservableObject
         RefreshTagFilters();
     }
 
+    partial void OnDependencyFilterChanged(ModDependencyFilter value)
+    {
+        RefreshModsFilter();
+        RefreshTagFilters();
+    }
+
     private void RefreshModsFilter()
     {
         ModsView.Refresh();
@@ -1764,6 +1924,77 @@ public sealed partial class MainViewModel : LocalizedObservableObject
             return new TagFilterItem(label, active, new RelayCommand(() => SelectedTag = active ? null : tag));
         }
         TagFilters = tags.Count == 0 ? [] : [Filter(L.T("All tags"), null), .. tags.Select(entry => Filter($"{entry.Tag} ({entry.Count})", entry.Tag))];
+        RefreshDependencyFilters();
+    }
+
+    internal ModDependencyInfo DependencyInfoOf(ModRecord record) =>
+        ModPrerequisites.Analyze(record, prerequisiteStates ?? ModPrerequisites.FromRecords(AllMods.Select(m => m.Record), IsUe4ssInstalled));
+
+    private void RefreshDependencyFilters()
+    {
+        TagFilterItem Filter(string label, ModDependencyFilter filter, string? tone = null)
+        {
+            var active = DependencyFilter == filter;
+            return new TagFilterItem(label, active, new RelayCommand(() => DependencyFilter = active ? ModDependencyFilter.All : filter), tone);
+        }
+
+        int missing = 0, ue4ssCount = 0, modLoaderCount = 0, modsMenuCount = 0, csharpLoaderCount = 0, loaderSelf = 0, standalone = 0;
+        foreach (var mod in Mods)
+        {
+            var info = mod.DependencyInfo;
+            if (info.HasMissingOrDisabled)
+                missing++;
+            if (info.IsLoader)
+                loaderSelf++;
+            else if (info.IsStandalone)
+                standalone++;
+            foreach (var req in info.Prerequisites)
+            {
+                switch (req.Kind)
+                {
+                    case ModPrerequisiteKind.Ue4ss: ue4ssCount++; break;
+                    case ModPrerequisiteKind.ModLoader: modLoaderCount++; break;
+                    case ModPrerequisiteKind.ModsMenu: modsMenuCount++; break;
+                    case ModPrerequisiteKind.CSharpLoader: csharpLoaderCount++; break;
+                }
+            }
+        }
+
+        string PrereqLabel(ModPrerequisiteKind kind, int count)
+        {
+            var name = ModDependencyBadge.PrerequisiteName(kind);
+            return L.F($"{name} ({count})");
+        }
+
+        var candidates = new (string Label, ModDependencyFilter Filter, int Count, string? Tone)[]
+        {
+            (L.F($"Missing prerequisite ({missing})"), ModDependencyFilter.Missing, missing, "bad"),
+            (PrereqLabel(ModPrerequisiteKind.Ue4ss, ue4ssCount), ModDependencyFilter.Ue4ss, ue4ssCount, null),
+            (PrereqLabel(ModPrerequisiteKind.ModLoader, modLoaderCount), ModDependencyFilter.ModLoader, modLoaderCount, null),
+            (PrereqLabel(ModPrerequisiteKind.ModsMenu, modsMenuCount), ModDependencyFilter.ModsMenu, modsMenuCount, null),
+            (PrereqLabel(ModPrerequisiteKind.CSharpLoader, csharpLoaderCount), ModDependencyFilter.CSharpLoader, csharpLoaderCount, null),
+            (L.F($"Prerequisite loader ({loaderSelf})"), ModDependencyFilter.LoaderSelf, loaderSelf, null),
+            (L.F($"No prerequisite ({standalone})"), ModDependencyFilter.Standalone, standalone, null),
+        }.Where(c => c.Count > 0).ToList();
+
+        if (candidates.Count < 2)
+        {
+            if (DependencyFilter != ModDependencyFilter.All)
+            {
+                DependencyFilter = ModDependencyFilter.All;
+                return;
+            }
+            DependencyFilters = [];
+            return;
+        }
+
+        if (DependencyFilter != ModDependencyFilter.All && !candidates.Any(c => c.Filter == DependencyFilter))
+        {
+            DependencyFilter = ModDependencyFilter.All;
+            return;
+        }
+
+        DependencyFilters = [Filter(L.F($"All ({Mods.Count})"), ModDependencyFilter.All), .. candidates.Select(c => Filter(c.Label, c.Filter, c.Tone))];
     }
 
     private void ApplySort() => ((ListCollectionView)ModsView).CustomSort = new ModOrder(SortField, SortDescending);
@@ -1796,14 +2027,17 @@ public sealed partial class MainViewModel : LocalizedObservableObject
                     Connect(new ModManager(holding, paths));
                     settings.GamePaths[Profile.Id] = holding.RootPath;
                     SaveSettings();
-                    ShowToast(L.F($"Using {holding.RootPath}, where your mods are."));
+                    var disabledInOther = await EnforcePrerequisitesAsync();
+                    if (disabledInOther.Count == 0)
+                        ShowToast(L.F($"Using {holding.RootPath}, where your mods are."));
                 }
                 return false;
             }
             connectedText = null;
         }
         Connect(next);
-        if (connectedText is not null)
+        var disabled = next is null ? [] : await EnforcePrerequisitesAsync();
+        if (connectedText is not null && disabled.Count == 0)
             ShowToast(connectedText);
         return true;
     }
@@ -1886,6 +2120,10 @@ public sealed partial class MainViewModel : LocalizedObservableObject
     private void RefreshMods()
     {
         Mods.Clear();
+        ue4ss = Game is null ? null : Ue4ssRuntime.Detect(Game);
+        installedUe4ssVersion = manager?.InstalledUe4ssVersion;
+        CheckUnrecordedUe4ss();
+        prerequisiteStates = manager?.PrerequisiteStates(IsUe4ssInstalled);
         var marked = new List<ModItemViewModel>();
         if (manager is not null)
         {
@@ -1911,9 +2149,6 @@ public sealed partial class MainViewModel : LocalizedObservableObject
             Log.Warn($"The mods folder could not be read: {ex.Message}");
             UnmanagedCount = 0;
         }
-        ue4ss = Game is null ? null : Ue4ssRuntime.Detect(Game);
-        installedUe4ssVersion = manager?.InstalledUe4ssVersion;
-        CheckUnrecordedUe4ss();
         OnModsChanged();
         // Every summary on every page derives from the game and the mod list.
         OnPropertyChanged(string.Empty);
@@ -1999,6 +2234,11 @@ public sealed partial class MainViewModel : LocalizedObservableObject
 
     private void TryOpen(string path)
     {
+        if (OpenPathForTest is { } testOpen)
+        {
+            testOpen(path);
+            return;
+        }
         try
         {
             Shell.Open(path);
