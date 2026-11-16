@@ -4,6 +4,24 @@ What changed in each release of UE MM, newest first: one short line per change.
 The app shows this list (the **Changelog** link in the sidebar's update box), so
 every release adds its section at the top, as `## <version> (<yyyy-mm-dd>)`.
 
+## 2.3.1 (2026-11-15)
+- Stellar Blade, experimental: its own look, UE4SS with one click (our build for the game) and save backups
+- Mortal Shell II and WUCHANG: Fallen Feathers are no longer experimental
+
+## 2.3.0 (2026-11-15)
+- openmods: click a card's cover to see the mod's cover and screenshots; a box on the cover shows how many images there are
+- openmods: the pictures are kept in the Data folder, so the page no longer downloads every cover at each start; Settings ▸ Clear picture cache empties it
+- openmods: a Changelog button on each card shows what changed in each version, from the mod's releases on GitHub
+- openmods: each card shows how often the mod was downloaded, and the list sorts by downloads too
+- openmods: tidier cards, and the full view's cards use the whole width
+
+## 2.2.1 (2026-11-15)
+- WUCHANG: Fallen Feathers, experimental: its own look, UE4SS with one click, save backups, and on the Mods page bitfix, which its pak mods need
+- Choose your game: See all games shows every game as cards over the whole window, Mortal Shell II (experimental) among them
+- The update check of mods with a mod page compares each mod with its own file, so an optional file no longer shows a false update (thanks, CooperZhuang, and HumanMus1c for the idea)
+- Uninstalling a UE4SS mod names the files it wrote into its own folder, such as logs, and can move them into the backups (thanks, CooperZhuang)
+- The mod details and Show files keep Close in view, also for a mod with many files
+
 ## 2.2.0 (2026-11-14)
 - The openmods page: the open-source mods listed for your game on openmods.nexus, with search, sort and a one-click install or update
 - openmods: a Mods | Tools switch, the type on every card with a type filter, and Hide installed to leave out what you already have

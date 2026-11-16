@@ -301,33 +301,22 @@
         </Grid.RowDefinitions>
 
         <!-- Fixed transparent header container: stays pinned above the scrolling mod list over the cover art. -->
-        <Border x:Name="HeaderContainer" Background="Transparent">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <Border Padding="48,22,48,14">
-                    <Grid x:Name="HeaderContent" MaxWidth="1120">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource Text.Overline}" Text="{ui:Loc 'Collection', Tracked=True}" />
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Display}" Text="{ui:Loc 'Mods'}" />
-                            <Rectangle Width="200" Height="2" Margin="0,14,0,0" HorizontalAlignment="Left" Fill="{StaticResource Brush.Stroke}" />
-                        </StackPanel>
-                        <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Orientation="Horizontal">
-                            <Button Style="{StaticResource Button.Primary}" Content="{ui:Loc 'Install from 7z/zip/rar…'}"
-                                    ui:Icon.Glyph="&#xE896;" Command="{Binding InstallFromArchiveCommand}" />
-                            <Button Margin="8,0,0,0" Content="{ui:Loc 'Install from folder…'}" ui:Icon.Glyph="&#xE8B7;" Command="{Binding InstallFromFolderCommand}" />
-                        </StackPanel>
-                    </Grid>
-                </Border>
-                <!-- Mirror ModsScroll's 10 px vertical scrollbar column so UseLayoutRounding and Font.Scale align identically. -->
-                <Border Grid.Column="1" Width="10"
-                        Visibility="{Binding ComputedVerticalScrollBarVisibility, ElementName=ModsScroll}" />
+        <Border x:Name="HeaderContainer" Background="Transparent" Padding="48,22,48,14">
+            <Grid x:Name="HeaderContent" MaxWidth="1120">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource Text.Overline}" Text="{ui:Loc 'Collection', Tracked=True}" />
+                    <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Display}" Text="{ui:Loc 'Mods'}" />
+                    <Rectangle Width="200" Height="2" Margin="0,14,0,0" HorizontalAlignment="Left" Fill="{StaticResource Brush.Stroke}" />
+                </StackPanel>
+                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Orientation="Horizontal">
+                    <Button Style="{StaticResource Button.Primary}" Content="{ui:Loc 'Install from 7z/zip/rar…'}"
+                            ui:Icon.Glyph="&#xE896;" Command="{Binding InstallFromArchiveCommand}" />
+                    <Button Margin="8,0,0,0" Content="{ui:Loc 'Install from folder…'}" ui:Icon.Glyph="&#xE8B7;" Command="{Binding InstallFromFolderCommand}" />
+                </StackPanel>
             </Grid>
         </Border>
 
-        <ScrollViewer x:Name="ModsScroll" Grid.Row="1" Background="Transparent"
+        <ScrollViewer x:Name="ModsScroll" Grid.Row="1" Style="{StaticResource ScrollViewer.Overlay}" Background="Transparent"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="ScrollContent" MaxWidth="1120" Margin="48,6,48,28">
 

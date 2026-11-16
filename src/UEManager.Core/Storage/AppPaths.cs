@@ -32,6 +32,9 @@ public sealed class AppPaths
 
     public string SettingsFile => Path.Combine(Root, "settings.json");
 
+    /// <summary>The game a download made for one game serves; see <see cref="ServedGame"/>.</summary>
+    public string ServeFile => Path.Combine(Root, "serve.json");
+
     /// <summary>The data folder's lock; see <see cref="DataFolderLock"/>.</summary>
     public string LockFile => Path.Combine(Root, "instance.lock");
 
@@ -39,6 +42,9 @@ public sealed class AppPaths
 
     /// <summary>Scratch space for unpacked downloads. Emptied at start-up.</summary>
     public string StagingDir => Path.Combine(Root, "staging");
+
+    /// <summary>Copies of the openmods page's pictures, so each is downloaded once; see <see cref="Catalog.PictureCache"/>.</summary>
+    public string PictureCacheDir => Path.Combine(Root, "cache", "pictures");
 
     public string GameDir(string gameId) => Path.Combine(Root, "games", gameId);
 

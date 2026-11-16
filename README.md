@@ -1,9 +1,10 @@
 # UE MM
 
-A mod manager for Unreal Engine games: **Black Myth: Wukong** and **Phantom
-Blade Zero**, and **Stellar Blade: Blood Rain** as a preview of its look until
-the game is out. One app serves every game: the player picks the game, and the
-interface takes that game's look. The executable keeps the file name
+A mod manager for Unreal Engine games: **Black Myth: Wukong**, **Mortal Shell
+II**, **Phantom Blade Zero** and **WUCHANG: Fallen Feathers**, **Stellar Blade**
+as experimental, and **Stellar Blade: Blood Rain** as a preview of its look
+until the game is out. One app serves every game: the player picks the game, and
+the interface takes that game's look. The executable keeps the file name
 `UEModManager.exe`.
 
 It keeps its own copy of every mod and records a SHA-256 checksum for every
@@ -63,9 +64,11 @@ after a change to an English text, update every language file too.
 
 ## Games
 
-At the first start the app shows **Choose your game**: one card per game, with
-where the game is on this PC (Steam, Epic, a folder chosen by hand, or Game not
-found) and how many mods it has. A click saves the choice (`game` in
+At the first start the app shows **Choose your game**: a card for each of the
+highlighted games, with where the game is on this PC (Steam, Epic, a folder
+chosen by hand, or Game not found) and how many mods it has. **See all games**
+at its top left shows every game the app knows as cards, over the whole window;
+**Back** or Esc leads back to the highlights. A click saves the choice (`game` in
 `settings.json`) and starts the app again with that game. **Switch game** in the
 title bar opens the same picker at any time, and **Settings → Ask for the game
 at every start** shows it at each start. Each game keeps its own mods and
@@ -75,6 +78,19 @@ backups in `Data/games/<id>/`, and has its own look: colours, art and card
 A game that is not out yet, such as Stellar Blade: Blood Rain, has a **Peek**
 label on its card: it can be chosen to see its look, and Home says that mod
 support comes with the game.
+
+A download made for one game can serve it: `Data/serve.json` next to the exe,
+such as `{"gameToServe": "phantom-blade-zero"}` (the id of a game profile).
+While no game is chosen, **Choose your game** then shows that game in the
+middle of the highlights with the accent frame, the other two dimmed but still
+a choice, all in the game's look: a plain dark background with the game's cover
+art at the top right, as on its pages, and the game's logo at the top left. A game
+that is not a highlight takes the third highlight's place, which stays in
+**See all games**. The first choice of any game removes the file, and so does a
+start that finds a game chosen already (such a download unpacked over an app in
+use), so the picker is as usual from then on. A file of its own, not a key in
+`settings.json`, so unpacking such a download never replaces anyone's settings.
+An unknown, hidden or not yet released game is ignored (the log says so).
 
 **Missing your game? Tell us on Discord** opens **Scan a game folder…**. The app
 reads the folder's tree with file sizes and sums it up: the Unreal project
@@ -237,7 +253,9 @@ exe, it installs nothing:
 
 - **Download and install** fetches the release named by the online manifest
   (below), or else the fixed `ue4ssPackageUrl` of the game profile, and refuses
-  a file that does not match the given SHA-256.
+  a file that does not match the given SHA-256. That fixed release's version is
+  read from its file name (`..._v4.0.0.zip`), or given as
+  `ue4ssPackageVersion` when the name has none, so it matches the manifest.
 - **Install from file…** takes a release zip the user downloaded from
   `ue4ssDownloadUrl`. It always works, also offline. Dropping that zip on the
   window does the same after a confirmation.
@@ -419,6 +437,21 @@ are used.
   description and the same actions, with the same type filter, search, sort
   and switch. It leaves the window's size alone. **Exit full view** or Esc goes
   back. It is off at every start.
+- A click on a card's cover opens the **picture viewer** over the whole window:
+  the cover first, then the mod's screenshots from the list's `screenshots` field
+  (`url` and an optional `alt`, from the mod's `openmods.md`; pictures from other
+  sites count too), one at a time, with arrows, the alt text, a counter and
+  thumbnails. Left, Right and Esc work. A box at the bottom left of each cover
+  shows the image icon and the number of pictures. A picture that does not load
+  gets a placeholder.
+- **Changelog** (beside Page and Source, for a source on GitHub) shows the texts
+  of the mod's 10 newest releases, read from GitHub's API on the click and kept
+  for the run: version, date, a Pre-release mark, and the text as headings, list
+  items, paragraphs and code (Markdown marks, links and pictures left out). It
+  says why when GitHub cannot be reached, refuses (60 questions an hour from one
+  PC without a login) or has no releases. In the full view, Page, Source and
+  Changelog are icons alone, with their names as tooltips: the page's own list
+  names them in words.
 - The **Mods | Tools** switch is two plain buttons: the app shows the open side on
   them, and a click runs a command. Radio buttons bound both ways to the two
   sides could write each other back without end (a stack overflow at the start
@@ -438,8 +471,15 @@ are used.
   stops and names that mod.
 - The UE4SS entry opens the manager's own UE4SS install.
 - A search field filters by name, description, author, tag and type. The list sorts
-  by name or by the date of the latest release (newest first by default); the
-  choice is kept in `settings.json`.
+  by name, by the date of the latest release (newest first by default) or by
+  downloads (most first); the choice is kept in `settings.json`.
+- When the list gives a mod's `downloads` (GitHub's download counts of its
+  release files over the latest 99 releases, counted by openmods; checksum and
+  info files such as `.txt`, `.md` or `.sha256` do not count), a small box with a
+  download icon and the number starts the card's info line ("1,234 downloads"
+  as its tooltip), and the **Downloads** sort shows. openmods recounts about
+  every 2 hours, so a number can be up to about 2.5 hours behind GitHub. The
+  app's own installs count too: they download the file from GitHub.
 - A switch, **Mods (n) | Tools (n)**, shows either the mods or those tagged
   `tools` (such as UE4SS and the manager itself); the page opens on the mods at
   every start, and the switch shows only when the list has tools. When the search
@@ -476,7 +516,9 @@ Network accesses: the UE4SS manifest and the update check at start, the mod
 update check at start (unless turned off) and on its button (see
 [Mod pages and updates](#mod-pages-and-updates)), the openmods lists and cover
 pictures when the openmods page opens (only while the catalog is switched on),
-and the downloads the user starts. Pictures are kept in memory only.
+the screenshots when the picture viewer opens, a mod's releases on GitHub when
+its Changelog is opened, and the downloads the user starts. Pictures are kept in the data folder's picture cache (see Data), so each
+is downloaded once.
 
 ### Removing UE4SS
 
@@ -757,7 +799,7 @@ UEModManager.exe --cli status | list | verify
 UEModManager.exe --cli plan <archive|folder>
 UEModManager.exe --cli install <archive|folder> --yes
 UEModManager.exe --cli enable <mod> | disable <mod>
-UEModManager.exe --cli uninstall <mod> --yes
+UEModManager.exe --cli uninstall <mod> --yes [--remove-leftovers]
 UEModManager.exe --cli backup list | create | restore | personal | note | delete
 UEModManager.exe --cli ue4ss status [--check]
 UEModManager.exe --cli ue4ss install [--package <file>] [--ue4ss-version <tag>]
@@ -832,6 +874,12 @@ UEModManager.exe --cli ue4ss remove --yes
   download is left behind.
 - `--ue4ss-manifest-url <url>` reads a test copy of the UE4SS manifest, as the
   app's own option of that name does.
+- `uninstall` lists the files a UE4SS mod wrote itself in its own folder below UE4SS's `Mods` folder,
+  such as its logs (`ModManager.LeftoversOf`), and keeps them: its record does not name them.
+  `--remove-leftovers` moves them into the manager's backups (`<date> <mod> leftovers`), and the
+  emptied folder goes. Only such a folder counts: not UE4SS's own mods, not the shared libraries, not
+  a folder another mod uses, and nothing else in the game, where a file the mod did not place can be
+  the game's or the player's, such as a save. The app asks the same after an uninstall.
 - `UEModManager.exe` is a window program, so a terminal does not wait for it.
   Pipe the output (`... --cli list | more`, in PowerShell `| Out-String`), use
   `start /wait` in cmd or `Start-Process -Wait` in PowerShell. Scripts that wait
@@ -995,17 +1043,21 @@ A folder chosen by hand inside a Steam library or an Epic install still starts
 through that store; otherwise **Launch game** starts the profile's `executable`
 directly. An Epic install is matched by its folder here, so it works even when
 `epicDisplayName` is wrong; the log then names the store's real name for the
-profile. `saveFolder` names the save folder for save backups. Set it only when
-the folder is known for sure: without it, the app offers no save backups.
+profile. `saveFolder` names the save folder for save backups. A `*` in it
+stands for any folder there, such as the player's account folder; with several,
+the one with the newest save wins. Set it only when the folder is known for
+sure: without it, the app offers no save backups.
 
 A profile also holds the game's name and `motto` (the line above it on Home,
 "Ready to mod" by default), `launchArguments` (see Launch options), the UE4SS
-download and manifest addresses, the mod site's addresses, and three flags:
-`comingSoon` (a game not out yet: a Peek card and a note on Home),
-`experimental` (a tag on its card and on Home while its layout is not confirmed)
-and `hidden` (no card in the picker or the tray menu, as Mortal Shell II for
-now). `--game <id>` starts the app with any profile, a hidden one too, for test
-runs; it does not change the saved choice.
+download and manifest addresses, the mod site's addresses, and four flags:
+`featured` (one of the highlight cards of the picker and a row in the tray
+menu; every game is in **See all games**, and the tray menu also lists the game
+the app runs for), `comingSoon` (a game not out yet: a Peek card and a note on
+Home), `experimental` (a tag on its card and on Home while its layout is not
+confirmed) and `hidden` (no card in the picker, not even in See all games, and
+no row in the tray menu). `--game <id>` starts the app with any profile, a
+hidden one too, for test runs; it does not change the saved choice.
 
 ## Data
 
@@ -1020,6 +1072,9 @@ Data/
   instance.lock                    held while the app runs
   logs/app-YYYYMMDD.log
   staging/                         unpacked downloads, emptied at every start
+  cache/pictures/                  the openmods page's covers and screenshots, each downloaded once; checked
+                                   with the site's ETag after an hour, at most 200 MB (the oldest used go
+                                   first), Settings ▸ Clear picture cache empties it
   games/<id>/mods.json             installed mods, files, checksums, mod sets
   games/<id>/library/<mod id>/     the manager's copy of each mod (.defaults: settings files as shipped)
   games/<id>/backups/              settings the player changed, saved before an update, uninstall or reset

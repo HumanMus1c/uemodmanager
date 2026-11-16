@@ -54,9 +54,6 @@ public sealed record ModDependencyInfo(IReadOnlyList<ModPrerequisite> Prerequisi
     public IReadOnlyList<ModPrerequisite> Unmet => [.. Prerequisites.Where(p => p.State != ModPrerequisiteState.Ready)];
 }
 
-/// <summary>Result of uninstalling a mod, including any settings backup folder and dependent mods disabled with it.</summary>
-public sealed record ModUninstallResult(string? BackupFolder, IReadOnlyList<string> DisabledDependents);
-
 /// <summary>Result of applying a mod set, including any mods skipped because a prerequisite runtime or loader is not ready.</summary>
 public sealed record ModBatchResult(int On, int Off, IReadOnlyList<string> SkippedMods);
 

@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using UEManager.Core;
+using UEManager.Core.Catalog;
 using UEManager.Core.Games;
 using UEManager.Core.Mods;
 using UEManager.Core.Storage;
@@ -890,20 +891,54 @@ public sealed partial class MainViewModel : LocalizedObservableObject
 
     internal async Task UninstallAsync(ModItemViewModel item)
     {
+        // The files the mod wrote itself, such as its logs, stay when it goes: say so before, and offer to move them after.
+        IReadOnlyList<ModLeftover> leftovers = [];
+        try
+        {
+            if (manager is not null)
+                leftovers = manager.LeftoversOf(item.Id);
+        }
+        catch (ModException)
+        {
+            leftovers = [];
+        }
         if (!await AskAsync(L.T("Uninstall mod"),
                 L.Join(L.F($"Remove \"{item.Name}\" from the game and from the manager's library? The original download is not touched."),
-                    item.HasSettings ? L.T("Settings you changed are backed up first.") : null),
+                    item.HasSettings ? L.T("Settings you changed are backed up first.") : null,
+                    leftovers.Count > 0
+                        ? L.F($"It also left {leftovers.Count} file(s) of its own in its UE4SS folder ({Format.Size(leftovers.Sum(leftover => leftover.Size))}): {LeftoverNames(leftovers)}. They stay unless you move them into the backups.")
+                        : null),
                 L.T("Uninstall")))
             return;
         ModUninstallResult? result = null;
-        if (await RunAsync(L.T("Uninstalling…"), async () => result = await Task.Run(() => manager!.UninstallWithDetails(item.Id))))
+        if (!await RunAsync(L.T("Uninstalling…"), async () => result = await Task.Run(() => manager!.Uninstall(item.Id))))
+            return;
+        var message = result!.SettingsBackup is null
+            ? L.F($"Uninstalled \"{item.Name}\".")
+            : L.F($"Uninstalled \"{item.Name}\". The settings you changed were backed up to {result.SettingsBackup}.");
+        if (result.Leftovers.Count > 0 && result.LeftoverBackup is null)
         {
-            var baseText = result!.BackupFolder is null
-                ? L.F($"Uninstalled \"{item.Name}\".")
-                : L.F($"Uninstalled \"{item.Name}\". The settings you changed were backed up to {result.BackupFolder}.");
-            ShowToast(L.Join(baseText, DisabledDependentsText(item.Name, result.DisabledDependents)));
+            if (await AskAsync(L.T("Files left behind"),
+                    L.F($"\"{item.Name}\" left {result.Leftovers.Count} file(s) of its own in its UE4SS folder ({Format.Size(result.Leftovers.Sum(leftover => leftover.Size))}): {LeftoverNames(result.Leftovers)}. Move them into the manager's backups? Its empty folder then goes too."),
+                    L.T("Move to backups")))
+            {
+                string? moved = null;
+                if (await RunAsync(L.T("Moving the files left behind…"),
+                        async () => moved = await Task.Run(() => manager!.MoveLeftoversToBackups(result.Leftovers, item.Name))))
+                    message = L.F($"Uninstalled \"{item.Name}\". {result.Leftovers.Count} file(s) it left were moved to {moved}.");
+            }
         }
+        ShowToast(L.Join(message, DisabledDependentsText(item.Name, result.DisabledDependents)));
         RefreshMods();
+        if (IsUnmanagedOpen)
+            ShowUnmanaged();
+    }
+
+    /// <summary>The first few names of what a mod left behind, for a question: its files' paths below the game, and a count.</summary>
+    private static string LeftoverNames(IReadOnlyList<ModLeftover> leftovers)
+    {
+        var names = string.Join(", ", leftovers.Take(3).Select(leftover => leftover.RelativePath));
+        return leftovers.Count > 3 ? L.F($"{names} and {leftovers.Count - 3} more") : names;
     }
 
     private static string? DisabledDependentsText(string loaderName, IReadOnlyList<string> dependents) =>
@@ -1448,12 +1483,7 @@ public sealed partial class MainViewModel : LocalizedObservableObject
             installedUe4ssVersion is null ? L.T("Start the game once to show its version.") : null));
     }
 
-    private static HttpClient CreateHttpClient()
-    {
-        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd($"UEModManager/{AppInfo.Version}");
-        return http;
-    }
+    private static HttpClient CreateHttpClient() => HttpClients.Create($"UEModManager/{AppInfo.Version}", TimeSpan.FromMinutes(3));
 
     internal static void TryDeleteFolder(string folder)
     {
@@ -1769,6 +1799,27 @@ public sealed partial class MainViewModel : LocalizedObservableObject
     {
         Directory.CreateDirectory(paths.LogsDir);
         TryOpen(paths.LogsDir);
+    }
+
+    /// <summary>The openmods page's pictures in the data folder (see <see cref="PictureCache"/>).</summary>
+    internal string PictureCacheDir => paths.PictureCacheDir;
+
+    /// <summary>Settings ▸ Manager data: removes the openmods page's pictures from the data folder, with a message either way.</summary>
+    [RelayCommand]
+    private void ClearPictureCache()
+    {
+        try
+        {
+            var (pictures, bytes) = PictureCache.Clear(paths.PictureCacheDir);
+            ShowToast(pictures == 0
+                ? L.T("The picture cache is empty.")
+                : L.Plural(pictures, "Picture cache cleared: {0} picture, {1}.", "Picture cache cleared: {0} pictures, {1}.", Format.Size(bytes)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"The picture cache could not be cleared: {ex.Message}");
+            ShowToast(L.F($"The picture cache could not be cleared: {ex.Message}"), isError: true);
+        }
     }
 
     /// <summary>Opens "Report a problem" with the facts about the game, UE4SS and the mods.</summary>

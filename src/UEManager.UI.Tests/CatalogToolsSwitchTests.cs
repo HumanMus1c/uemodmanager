@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -89,6 +90,61 @@ public sealed class CatalogToolsSwitchTests : IDisposable
     }
 
     private static string[] Shown(CatalogViewModel catalog) => catalog.ItemsView.Cast<CatalogItemViewModel>().Select(item => item.Name).ToArray();
+
+    [Fact]
+    public void The_page_shows_and_sorts_by_downloads_when_the_list_counts_them() => UiThread.Run(() =>
+    {
+        var catalog = Load("""
+            { "openmods": 1, "mods": [
+              { "name": "Alpha", "source": "https://github.com/A/alpha", "downloads": 5 },
+              { "name": "Beta", "source": "https://github.com/A/beta", "downloads": 900 },
+              { "name": "Gamma", "source": "https://github.com/A/gamma", "downloads": 1 },
+              { "name": "Delta", "source": "https://github.com/A/delta" }
+            ] }
+            """);
+
+        Assert.True(catalog.HasDownloads);
+        catalog.SortByCommand.Execute(CatalogSortField.Downloads);
+        // The most first; a mod without a count last.
+        Assert.Equal(["Beta", "Alpha", "Gamma", "Delta"], Shown(catalog));
+        Assert.True(catalog.SortDescending);
+        catalog.SortByCommand.Execute(CatalogSortField.Downloads);
+        Assert.Equal(["Delta", "Gamma", "Alpha", "Beta"], Shown(catalog));
+
+        // The count is a box of its own, not in the info line, whose parts hold together (no-break spaces).
+        var cards = catalog.Items.ToDictionary(item => item.Name);
+        Assert.True(cards["Beta"].HasDownloads);
+        Assert.Equal(900.ToString("N0", CultureInfo.CurrentCulture), cards["Beta"].DownloadsText);
+        Assert.Equal("900 downloads", cards["Beta"].DownloadsToolTip);
+        Assert.Equal("1 download", cards["Gamma"].DownloadsToolTip);
+        Assert.False(cards["Delta"].HasDownloads);
+        Assert.Null(cards["Delta"].DownloadsText);
+        Assert.DoesNotContain(' ', cards["Beta"].MetaText);
+        Assert.Equal("No release yet", cards["Beta"].MetaText.Replace((char)0xA0, ' '));
+
+        // A list from before openmods counted them: no sort by downloads to offer.
+        Assert.False(Load(Mods).HasDownloads);
+    });
+
+    [Fact]
+    public void A_card_without_an_action_shows_its_status_in_the_row_of_the_buttons() => UiThread.Run(() =>
+    {
+        var cards = Load(Mods).Items.ToDictionary(item => item.Name);
+
+        // No download: no action, so the status takes its place in the full view's row.
+        var loader = cards["PBZModLoader"];
+        Assert.False(loader.HasAction);
+        Assert.Equal("No download yet", loader.StatusText);
+        Assert.True(loader.ShowsStatusInRow);
+        Assert.False(loader.ShowsStatusBelow);
+
+        // An action and no status: neither.
+        var witchTime = cards["Witch Time"];
+        Assert.True(witchTime.HasAction);
+        Assert.Null(witchTime.StatusText);
+        Assert.False(witchTime.ShowsStatusInRow);
+        Assert.False(witchTime.ShowsStatusBelow);
+    });
 
     [Fact]
     public void The_page_shows_the_mods_or_the_tools() => UiThread.Run(() =>
@@ -383,26 +439,6 @@ public sealed class CatalogToolsSwitchTests : IDisposable
     public void The_full_view_fits_as_many_columns_as_the_card_list_holds(double width, int columns)
     {
         Assert.Equal(columns, CatalogFullView.ColumnsFor(width));
-    }
-
-    /// <summary>
-    /// A card's Page and Source buttons keep their words beside Install, and are icons alone beside a long action on
-    /// the narrowest card, such as UE4SS's "Update to v4.0.0" (sizes from the screen at 1360 wide).
-    /// </summary>
-    [Theory]
-    [InlineData(266, 87, true)]
-    [InlineData(266, 150, false)]
-    [InlineData(266, 0, true)]
-    [InlineData(0, 150, true)]
-    public void A_cards_buttons_keep_their_words_while_the_action_leaves_room(double row, double action, bool words)
-    {
-        object[] values = [row, action];
-
-        var shown = new UEManager.UI.RoomConverter().Convert(values, typeof(System.Windows.Visibility), "160", null!);
-        var standIn = new UEManager.UI.RoomConverter { Invert = true }.Convert(values, typeof(System.Windows.Visibility), "160", null!);
-
-        Assert.Equal(words ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed, shown);
-        Assert.Equal(words ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible, standIn);
     }
 
     private static void WaitFor(Task task)

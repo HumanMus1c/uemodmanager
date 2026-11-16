@@ -45,6 +45,12 @@ public sealed class GameProfile
     /// </summary>
     public bool Hidden { get; init; }
 
+    /// <summary>
+    /// One of the highlight cards at the top of the game picker. A game without it is offered too, but only in the
+    /// picker's full list, All games, and in the tray menu while it is the game the app runs for.
+    /// </summary>
+    public bool Featured { get; init; }
+
     /// <summary>Steam application id, used to find the install through Steam's library manifests.</summary>
     public string? SteamAppId { get; init; }
 
@@ -102,6 +108,13 @@ public sealed class GameProfile
     /// <summary>SHA-256 of that file. A download that does not match is refused.</summary>
     public string? Ue4ssPackageSha256 { get; init; }
 
+    /// <summary>
+    /// The version of that file as the manifest names it; null to read it from the file name ("v3.0.1-1181-g…"). Needed
+    /// for a name without a "v" version, such as "stellarblade_ue4ss_sb-ue4ss-1.3.zip": a fallback install then records
+    /// the manifest's version, so the manifest does not offer the same release again as an update.
+    /// </summary>
+    public string? Ue4ssPackageVersion { get; init; }
+
     /// <summary>Started by "Launch game" when no store launcher is known, relative to the install folder.</summary>
     public string? Executable { get; init; }
 
@@ -114,7 +127,8 @@ public sealed class GameProfile
 
     /// <summary>
     /// The folder holding the game's save files, for save backups: relative to the install folder, or a
-    /// full path in which environment variables such as %LOCALAPPDATA% are expanded. Set it only when the
+    /// full path in which environment variables such as %LOCALAPPDATA% are expanded. A * in a part of it matches any
+    /// folder there, such as a folder per player account; the one with the newest save wins. Set it only when the
     /// folder is known for sure: without it, save backups are not offered for the game.
     /// </summary>
     public string? SaveFolder { get; init; }

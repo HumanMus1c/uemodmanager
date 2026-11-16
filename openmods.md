@@ -1,8 +1,8 @@
 # UE MM
 
-A mod manager for Unreal Engine games: **Black Myth: Wukong** and **Phantom Blade Zero**, and **Stellar Blade: Blood
-Rain** as a preview of its look until the game is out. One app for every game: you pick the game, and the app takes its
-look.
+A mod manager for Unreal Engine games: **Black Myth: Wukong**, **Mortal Shell II**, **Phantom Blade Zero** and
+**WUCHANG: Fallen Feathers**, **Stellar Blade** as experimental, and **Stellar Blade: Blood Rain** as a preview of its
+look until the game is out. One app for every game: you pick the game, and the app takes its look.
 
 ## What it does
 
@@ -49,7 +49,8 @@ folder.
   before anything reaches the game.
 - **Mods:** turn mods on and off, update or uninstall them, and edit or reset a mod's settings.
 - **openmods:** the open-source mods for your game, with a type on every card, search, sort and **Hide installed**.
-  One click installs or updates a mod. **Full view** shows them over the whole window.
+  One click installs or updates a mod. **Full view** shows them over the whole window. A click on a mod's cover shows
+  its cover and screenshots, one at a time. **Changelog** shows what changed in its newest releases.
 - **UE4SS:** install or update UE4SS, open its folder, and read its log.
 - **Backups:** back up your saves, choose how many the app keeps, keep some for good in **Personal**, and restore one.
 - **Settings:** the game folder, the tray icon, and the manager's data, logs and backups. **Reset modding…** removes every mod and
@@ -60,8 +61,11 @@ For scripts, the same exe is a command line tool: `UEModManager.exe --cli --help
 
 ## Compatibility
 
-- Black Myth: Wukong and Phantom Blade Zero, on Steam, on the Epic Games Store where the game is sold there, or in a
-  folder chosen by hand. Stellar Blade: Blood Rain shows its look only, until the game is out.
+- Black Myth: Wukong, Mortal Shell II, Phantom Blade Zero, Stellar Blade and WUCHANG: Fallen Feathers, on Steam, on the
+  Epic Games Store where the game is sold there, or in a folder chosen by hand. Stellar Blade: Blood Rain shows its look
+  only, until the game is out.
+- Stellar Blade is experimental: its support is new and not fully checked yet.
+- Mortal Shell II, Stellar Blade and WUCHANG: Fallen Feathers are in **See all games** in the game picker.
 - Your game is missing? In the game picker, **Missing your game? Tell us on Discord** scans its folder and makes a
   report to share.
 - Windows 10 or 11, 64-bit.
