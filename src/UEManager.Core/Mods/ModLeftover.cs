@@ -13,8 +13,13 @@ public sealed record ModLeftover(string Path, string RelativePath, long Size)
     public bool IsLog => RelativePath.EndsWith(".log", StringComparison.OrdinalIgnoreCase);
 }
 
-/// <summary>What an uninstall did: the settings it backed up, the files the mod left, and where those went if moved.</summary>
+/// <summary>What an uninstall did: the settings it backed up, the files the mod left, where those went if moved, and any disabled dependents.</summary>
 /// <param name="SettingsBackup">The folder the player's changed settings were backed up to, or null when there were none.</param>
 /// <param name="Leftovers">The files the mod left in the game, which the uninstall kept.</param>
 /// <param name="LeftoverBackup">The folder the leftovers were moved to, or null when they stayed in the game.</param>
-public sealed record ModUninstallResult(string? SettingsBackup, IReadOnlyList<ModLeftover> Leftovers, string? LeftoverBackup);
+/// <param name="DisabledDependents">Any dependent mods disabled together with a prerequisite loader.</param>
+public sealed record ModUninstallResult(
+    string? SettingsBackup,
+    IReadOnlyList<ModLeftover> Leftovers,
+    string? LeftoverBackup,
+    IReadOnlyList<string> DisabledDependents);

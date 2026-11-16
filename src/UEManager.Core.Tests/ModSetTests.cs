@@ -43,6 +43,8 @@ public class ModSetTests : IDisposable
     [Fact]
     public void Sets_leave_the_recommended_mod_as_it_is()
     {
+        folder.File(@"Game\TestGame\Binaries\Win64\dwmapi.dll", "");
+        folder.File(@"Game\TestGame\Binaries\Win64\ue4ss\UE4SS.dll", "");
         var sharp = Install("Sharp");
         manager.SaveSet("Before the fix");
         var fix = InstallUe4ssMod("TheFix");
@@ -186,5 +188,41 @@ public class ModSetTests : IDisposable
         Assert.Throws<ChangedFilesException>(() => manager.ApplySet("Sharp only"));
 
         Assert.Equal(["Swift"], Enabled());
+    }
+
+    [Fact]
+    public void A_set_skips_mods_whose_prerequisites_are_unmet_and_succeeds_when_both_are_included()
+    {
+        folder.File(@"Downloads\PBZModLoader\TestGame\Binaries\Win64\version.dll", "[PBZMOD] loader");
+        using (var preview = manager.Inspect(folder.Combine("Downloads", "PBZModLoader")))
+            manager.Install(preview, preview.Packages.ToList(), "PBZModLoader", null);
+
+        folder.File(@"Downloads\Regen\TestGame\PBZModLoader\mods\Regen\main.js", "regen");
+        using var regenPreview = manager.Inspect(folder.Combine("Downloads", "Regen"));
+        var regen = manager.Install(regenPreview, regenPreview.Packages.ToList(), "Regen", null);
+        var loader = manager.Mods.Single(m => m.Name == "PBZModLoader");
+
+        // A set containing both the loader and its dependent enables both cleanly.
+        manager.SaveSet("Both");
+        manager.SetEnabled(loader.Id, false);
+        Assert.Empty(Enabled());
+
+        var bothResult = manager.ApplySetWithDetails("Both");
+        Assert.Equal(2, bothResult.On);
+        Assert.Empty(bothResult.SkippedMods);
+        Assert.Equal(["PBZModLoader", "Regen"], Enabled());
+
+        // Save a set containing only Regen while a hand-placed loader exists, then disable everything and remove the hand-placed loader.
+        manager.SetEnabled(loader.Id, false);
+        folder.File(@"Game\TestGame\Binaries\Win64\hid.dll", "[PBZMOD] by hand");
+        manager.SetEnabled(regen.Id, true);
+        manager.SaveSet("Regen only");
+        manager.SetEnabled(regen.Id, false);
+        File.Delete(folder.Combine("Game", "TestGame", "Binaries", "Win64", "hid.dll"));
+
+        var blockedResult = manager.ApplySetWithDetails("Regen only");
+        Assert.Equal(0, blockedResult.On);
+        Assert.Equal(["Regen"], blockedResult.SkippedMods);
+        Assert.False(manager.Mods.Single(m => m.Id == regen.Id).Enabled);
     }
 }

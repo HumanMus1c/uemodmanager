@@ -133,7 +133,7 @@ public class Ue4ssTests : IDisposable
     }
 
     [Fact]
-    public void Warns_when_ue4ss_is_missing_but_still_installs()
+    public void Warns_when_ue4ss_is_missing_and_installs_disabled_until_ue4ss_is_ready()
     {
         using (var preview = manager.Inspect(LuaDownload("DashTest")))
         {
@@ -143,8 +143,15 @@ public class Ue4ssTests : IDisposable
             Assert.Contains(check.Warnings, w => w.ToString().Contains("UE4SS is not installed"));
         }
 
-        Install(LuaDownload("DashTest"));
+        var installed = Install(LuaDownload("DashTest"));
 
+        Assert.False(installed.Enabled);
+        Assert.False(File.Exists(Path.Combine(Win64, "ue4ss", "Mods", "DashTest", "Scripts", "main.lua")));
+        Assert.True(File.Exists(Path.Combine(manager.LibraryFolderOf(installed), "Ue4ssMods", "DashTest", "Scripts", "main.lua")));
+        Assert.Throws<ModException>(() => manager.SetEnabled(installed.Id, true));
+
+        InstallUe4ss();
+        manager.SetEnabled(installed.Id, true);
         Assert.True(File.Exists(Path.Combine(Win64, "ue4ss", "Mods", "DashTest", "Scripts", "main.lua")));
     }
 
@@ -204,6 +211,7 @@ public class Ue4ssTests : IDisposable
     [Fact]
     public void Blueprint_paks_go_to_logic_mods()
     {
+        InstallUe4ss();
         folder.File(@"Downloads\BpMod\Content\Paks\LogicMods\BpMod_P.pak");
 
         var mod = Install(folder.Combine("Downloads", "BpMod"));
@@ -222,5 +230,37 @@ public class Ue4ssTests : IDisposable
 
         Assert.Equal(DeployTarget.Mods, state.Mods[0].Files[0].Target);
         Assert.Equal("PAK", state.Mods[0].TypeLabel);
+    }
+
+    [Fact]
+    public void Blueprint_mods_install_disabled_without_ue4ss_unlock_on_install_and_disable_on_ue4ss_removal()
+    {
+        folder.File(@"Downloads\BpMod\Content\Paks\LogicMods\BpMod_P.pak", "bp");
+        var logicPak = Path.Combine(game.LogicModsPath, "BpMod_P.pak");
+
+        using (var preview = manager.Inspect(folder.Combine("Downloads", "BpMod")))
+        {
+            var check = manager.Check(preview, preview.Packages.ToList());
+            Assert.True(check.CanInstall);
+            Assert.Contains(check.Warnings, w => w.ToString().Contains("UE4SS"));
+        }
+
+        var bp = Install(folder.Combine("Downloads", "BpMod"));
+        Assert.False(bp.Enabled);
+        Assert.False(File.Exists(logicPak));
+        Assert.Throws<ModException>(() => manager.SetEnabled(bp.Id, true));
+
+        InstallUe4ss();
+        manager.SetEnabled(bp.Id, true);
+        Assert.True(manager.Mods.Single(m => m.Id == bp.Id).Enabled);
+        Assert.True(File.Exists(logicPak));
+
+        var removalPreview = manager.PreviewUe4ssRemoval();
+        Assert.Equal(["BpMod"], removalPreview.DisabledMods.Select(m => m.Name));
+
+        var removal = manager.RemoveUe4ss();
+        Assert.Equal(1, removal.DisabledMods);
+        Assert.False(manager.Mods.Single(m => m.Id == bp.Id).Enabled);
+        Assert.False(File.Exists(logicPak));
     }
 }

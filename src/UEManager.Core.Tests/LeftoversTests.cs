@@ -18,6 +18,14 @@ public class LeftoversTests : IDisposable
     {
         game = GameLocator.Resolve(TestFolder.Profile(), folder.Game(), GameStore.Manual)!;
         manager = new ModManager(game, new AppPaths(folder.Combine("Data")), _ => false);
+        InstallUe4ss();
+    }
+
+    private void InstallUe4ss()
+    {
+        Directory.CreateDirectory(Path.Combine(game.BinariesPath, "ue4ss", "Mods"));
+        File.WriteAllText(Path.Combine(game.BinariesPath, "ue4ss", "UE4SS.dll"), "");
+        File.WriteAllText(Path.Combine(game.BinariesPath, "dwmapi.dll"), "");
     }
 
     public void Dispose() => folder.Dispose();

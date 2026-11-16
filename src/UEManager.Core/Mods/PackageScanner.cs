@@ -780,12 +780,19 @@ public static class PackageScanner
             else if (IsCSharpMod(package))
                 package.NeedsLoader = ForCSharpLoader;
             else if (IsBelowProject(package, ModsMenuFolder)
-                     && !package.RelativePaths.Any(path => path.EndsWith($"/{ModsMenuFolder}/bootstrap.js", StringComparison.OrdinalIgnoreCase)))
+                     && !package.RelativePaths.Any(path => path.EndsWith($"/{ModsMenuStartFile}", StringComparison.OrdinalIgnoreCase)))
                 package.NeedsLoader = ForModsMenu;
         }
     }
 
     private static bool IsGameFiles(PackageGroup package) => package.Kind == PackageKind.File && package.Target == DeployTarget.InstallRoot;
+
+    /// <summary>Mods Menu's start file, relative to the game's project folder.</summary>
+    internal const string ModsMenuStartFile = ModsMenuFolder + "/bootstrap.js";
+
+    /// <summary>Whether a path below the install folder sits under Mods Menu's folder.</summary>
+    internal static bool IsModsMenuPath(string path) =>
+        StartsAt(path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries), 1, ModsMenuFolder);
 
     /// <summary>The folder a part of game files is named after, such as PVLW_SpeakerHighlight; a lone file is named after itself, so its folder.</summary>
     private static string LastName(PackageGroup package)
@@ -805,12 +812,29 @@ public static class PackageScanner
         StartsAt(path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries), 1, ModLoaderFolder);
 
     /// <summary>
+    /// A file or part for the C# Loader's mods folder: under the install folder (b1/Binaries/Win64/CSharpLoader/Mods/...)
+    /// or the exe folder (CSharpLoader/Mods/...).
+    /// </summary>
+    internal static bool IsCSharpModPath(DeployTarget target, string path)
+    {
+        var parts = path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+        return (target == DeployTarget.InstallRoot && StartsAt(parts, 1, "Binaries/Win64/" + CSharpModsFolder))
+            || (target == DeployTarget.ExeFolder && StartsAt(parts, 0, CSharpModsFolder));
+    }
+
+    /// <summary>Whether a path identifies the C# Loader's own binary.</summary>
+    internal static bool IsCSharpLoaderPath(string path) =>
+        path.Equals(CSharpLoaderFile, StringComparison.OrdinalIgnoreCase)
+        || path.Replace('\\', '/').EndsWith("/" + CSharpLoaderFile, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// A part for the C# Loader's mods folder: as game files, b1/Binaries/Win64/CSharpLoader/Mods/..., or as files for the
     /// exe folder, CSharpLoader/Mods/....
     /// </summary>
     private static bool IsCSharpMod(PackageGroup package) =>
-        (package.Kind == PackageKind.File && StartsAt(package.RelativePaths[0].Split('/'), 1, "Binaries/Win64/" + CSharpModsFolder))
-        || (package.Kind == PackageKind.ExeFiles && IsCSharpModPlace(package.RelativePaths[0]));
+        ((package.Kind == PackageKind.File && package.Target == DeployTarget.InstallRoot)
+         || package.Kind == PackageKind.ExeFiles)
+        && IsCSharpModPath(package.Target, package.RelativePaths[0]);
 
     /// <summary>
     /// The folder that holds the CSharpLoader folder a folder of the download is in, such as the download's top for

@@ -7,12 +7,12 @@ namespace UEManager.Core.Mods;
 public sealed record Ue4ssInstallResult(string TargetFolder, int FilesWritten, IReadOnlyList<string> KeptFiles, bool Updated,
     IReadOnlyList<string> RemovedFiles);
 
-/// <param name="DisabledMods">Managed mods that lived in UE4SS's folder and are now disabled; their library copies stay.</param>
+/// <param name="DisabledMods">Managed mods that require UE4SS and are now disabled; their library copies stay.</param>
 public sealed record Ue4ssRemoveResult(int DisabledMods);
 
 /// <summary>What <see cref="ModManager.RemoveUe4ss"/> would take now.</summary>
 /// <param name="Paths">UE4SS's files and folders in the game, whoever put them there; empty when UE4SS is not installed.</param>
-/// <param name="DisabledMods">The enabled mods with files in UE4SS's Mods folder, which it would disable.</param>
+/// <param name="DisabledMods">The enabled Lua, DLL and Blueprint mods requiring UE4SS, which it would disable.</param>
 public sealed record Ue4ssRemovePreview(IReadOnlyList<string> Paths, IReadOnlyList<ModRecord> DisabledMods)
 {
     public bool Installed => Paths.Count > 0;

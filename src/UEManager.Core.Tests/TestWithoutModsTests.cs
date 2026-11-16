@@ -105,4 +105,27 @@ public class TestWithoutModsTests : IDisposable
         Assert.Throws<ModException>(() => manager.TurnOffForTest());
         Assert.True(File.Exists(Deployed("Sharp")));
     }
+
+    [Fact]
+    public void Turn_back_on_skips_mods_whose_prerequisite_was_removed()
+    {
+        var sharp = Install("Sharp");
+        folder.File(@"Game\TestGame\Binaries\Win64\dwmapi.dll", "proxy");
+        folder.File(@"Game\TestGame\Binaries\Win64\ue4ss\UE4SS.dll", "ue4ss");
+        folder.File(@"Downloads\LuaTest\ue4ss\Mods\LuaTest\Scripts\main.lua", "print('hi')");
+        using var preview = manager.Inspect(folder.Combine("Downloads", "LuaTest"));
+        var lua = manager.Install(preview, preview.Packages.ToList(), "LuaTest", null);
+
+        Assert.Equal(2, manager.TurnOffForTest());
+
+        File.Delete(Path.Combine(game.BinariesPath, "dwmapi.dll"));
+        File.Delete(Path.Combine(game.BinariesPath, "ue4ss", "UE4SS.dll"));
+
+        var (turnedOn, skipped) = manager.TurnBackOnWithDetails();
+
+        Assert.Equal(1, turnedOn);
+        Assert.Equal(["LuaTest"], skipped);
+        Assert.True(manager.Mods.Single(m => m.Id == sharp.Id).Enabled);
+        Assert.False(manager.Mods.Single(m => m.Id == lua.Id).Enabled);
+    }
 }
